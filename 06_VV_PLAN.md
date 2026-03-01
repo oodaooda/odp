@@ -1,8 +1,3 @@
-
----
-
-## 📄 `06_VV_PLAN.md`
-```markdown
 # Verification & Validation Plan (V&V)
 
 ## Phase 1 – Orchestrator
@@ -58,3 +53,6 @@ Gate: UI stable
 - System behaves as specified
 - No agent bypass possible
 - Failures observable
+ - Memory writes are orchestrator-only
+ - Vector retrieval never overrides specs
+ 

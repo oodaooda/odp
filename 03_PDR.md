@@ -6,6 +6,8 @@
 - Worker agents (stateless)
 - Redis (coordination + state)
 - WebSocket server (UI visibility)
+ - Postgres (memory source-of-truth)
+ - pgvector (retrieval index)
 
 ---
 
@@ -30,6 +32,8 @@
 - Agents untrusted
 - Redis semi-trusted
 - Orchestrator trusted
+ - Postgres trusted (append-only)
+ - Vector store untrusted (read-only)
 
 ---
 

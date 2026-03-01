@@ -1,0 +1,43 @@
+# ODP Development Process (OpenClaw-driven)
+
+## 1. Inputs (source of truth)
+- Specs: PRD/SRD/PDR/ICD/DDR/V&V Plan
+- Each task must cite the spec(s) it is implementing.
+ - Each task must include a scope-of-work doc and roadmap with milestones.
+
+## 2. Roles
+- Orchestrator: decomposes work, enforces gates, final authority.
+- Engineer agent: produces code + tests + diffs.
+- QA agent: runs regression checks and spec compliance.
+- Security agent: runs secret/dependency scans.
+- Orchestrator is the only writer to long-term memory.
+ - Agents may draft memory entries pending orchestrator promotion.
+
+## 3. Phases and gates
+- Phase 1: Orchestrator lifecycle tests
+- Phase 2: Engineer (branch isolation, diff generation, local tests)
+- Phase 3: QA regression + spec compliance
+- Phase 4: Security checks
+- Phase 5: UI/WebSocket stability checks
+
+No commit or merge is allowed unless all gates pass and evidence is recorded.
+
+## 4. Evidence requirements (per gate)
+- Test output or log artifacts
+- Repro steps or commands
+- Source diffs
+- Final gate decision recorded in state
+- Memory events stored in Postgres (append-only)
+ - Scope-of-work, roadmap, and verification logs attached per task
+
+## 5. Suggested first milestone
+- Minimal orchestrator service with task lifecycle
+- Redis state schema implemented (Task, Agent Result, Gate Decision)
+- WebSocket event stream for status updates
+- One end-to-end gated task flow in tests
+- Orchestrator memory write path (Postgres + pgvector)
+
+## 6. Templates (agent required)
+- Scope of Work template: `docs/templates/SCOPE_OF_WORK.md`
+- Roadmap template: `docs/templates/ROADMAP.md`
+- Verification log template: `docs/templates/VERIFICATION_LOG.md`

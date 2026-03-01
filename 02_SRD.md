@@ -11,6 +11,9 @@
 - Agent failure must not crash system
 - Tasks must be resumable
 - Redis-backed state required
+ - Memory writes must be orchestrator-only
+ - Agents must persist task artifacts in agent-scoped workspaces
+ - Memory writes must be orchestrator-only
 
 ---
 
@@ -25,6 +28,10 @@
 - No secrets in agent prompts
 - No direct prod access
 - Git operations sandboxed
+ - Memory store is append-only and auditable
+ - Vector retrieval is read-only for agents
+ - Memory store is append-only and auditable
+ - Vector retrieval is read-only for agents
 
 ---
 
@@ -39,6 +46,7 @@
 - All state transitions logged
 - Every task traceable
 - Audit logs immutable
+ - Each agent must log: scope-of-work, roadmap/milestones, tests run, and verification results
 
 ---
 
@@ -46,3 +54,8 @@
 - Python only
 - Redis required
 - WebSockets required
+- Postgres required (source-of-truth memory)
+- Vector search required (pgvector)
+ - Agent workspaces are isolated per task and role
+ - Postgres required (source-of-truth memory)
+ - Vector search required (pgvector)
