@@ -71,3 +71,25 @@ create table memory_vectors (
 -- Example IVFFLAT index (tune lists based on scale)
 create index memory_vectors_embedding_idx on memory_vectors using ivfflat (embedding vector_l2_ops) with (lists = 100);
 ```
+
+## 6. Embedding + Semantic Search Flow
+
+### Embedding pipeline (orchestrator)
+1. Select text source (memory event summary, decision, artifact captions).
+2. Normalize content (strip secrets, ensure provenance).
+3. Call embedding model to produce a vector (e.g., 1536-dim float array).
+4. Store vector in `memory_vectors` linked to `memory_events.event_id`.
+
+### Example similarity query
+```sql
+-- Given a query vector `:q`, return most similar memory events
+select me.event_id, me.task_id, me.type, me.payload
+from memory_vectors mv
+join memory_events me on me.event_id = mv.event_id
+order by mv.embedding <-> :q
+limit 5;
+```
+
+### Notes
+- Embeddings are not authoritative; they are only for retrieval.
+- Orchestrator must cite source memory events and artifacts.
