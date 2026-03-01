@@ -37,6 +37,8 @@ Gate: Security must pass
 ## Phase 5 – UI / WebSocket
 ✔ Real-time updates  
 ✔ Disconnect recovery  
+✔ Chat history persistence
+✔ Compaction audit trail
 
 Gate: UI stable
 
@@ -53,6 +55,7 @@ Gate: UI stable
 - System behaves as specified
 - No agent bypass possible
 - Failures observable
- - Memory writes are orchestrator-only
- - Vector retrieval never overrides specs
+- Memory writes are orchestrator-only
+- Vector retrieval never overrides specs
+ - Project isolation enforced
  

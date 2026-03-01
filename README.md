@@ -10,6 +10,12 @@ ODP is a spec-driven, multi-agent development system designed to safely coordina
 - DDR: `05_DDR.md`
 - V&V Plan: `06_VV_PLAN.md`
 - Security: `07_SECURITY.md`
+- Decisions: `08_DECISIONS.md`
+- Runbook: `09_RUNBOOK.md`
+- SLOs: `10_SLOS.md`
+- Config & Secrets: `11_CONFIG_SECRETS.md`
+- Handoff: `12_HANDOFF.md`
+- UI Spec: `docs/UI_SPEC.md`
 
 ## Repo layout (initial)
 - `apps/`: UI + control surface

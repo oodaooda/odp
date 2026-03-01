@@ -53,3 +53,13 @@ runtime/
 - Agents maintain task-scoped memory entries in Postgres (pending).
 - Orchestrator reviews and promotes entries into source-of-truth memory.
 - Vector index is derived only from promoted memory events.
+
+## 8. Project Isolation
+- All Redis keys are namespaced by project_id.
+- Postgres records include project_id.
+- Workspaces are isolated per project/agent/task.
+
+## 9. Modular Monolith Boundaries
+- Orchestrator, Memory, Agents, UI, and Infra are separate modules.
+- Modules communicate via internal interfaces (no direct cross-writes).
+- Module contracts are defined in ICD and enforced via tests.

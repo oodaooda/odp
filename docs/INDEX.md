@@ -8,6 +8,12 @@
 - DDR: `../05_DDR.md`
 - V&V Plan: `../06_VV_PLAN.md`
 - Security: `../07_SECURITY.md`
+- Decisions: `../08_DECISIONS.md`
+- Runbook: `../09_RUNBOOK.md`
+- SLOs: `../10_SLOS.md`
+- Config & Secrets: `../11_CONFIG_SECRETS.md`
+- Handoff: `../12_HANDOFF.md`
+- UI Spec: `UI_SPEC.md`
 
 ## Process
 - `PROCESS.md`

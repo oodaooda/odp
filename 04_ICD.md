@@ -5,6 +5,7 @@
 ### Task
 ```json
 {
+  "project_id": "uuid",
   "task_id": "uuid",
   "status": "pending|running|failed|passed",
   "phase": "phase_name",
@@ -17,6 +18,7 @@
 ### Agent Result
 ```json
 {
+  "project_id": "uuid",
   "task_id": "uuid",
   "agent_role": "engineer|qa|security",
   "status": "passed|failed",
@@ -29,6 +31,7 @@
 ### Gate Decision
 ```json
 {
+  "project_id": "uuid",
   "task_id": "uuid",
   "gate": "phase_name",
   "decision": "pass|fail",
@@ -42,6 +45,7 @@
 ### Orchestrator Memory Event
 ```json
 {
+  "project_id": "uuid",
   "event_id": "uuid",
   "task_id": "uuid",
   "type": "message|decision|artifact|summary|state_transition",
@@ -64,6 +68,7 @@
 ### Artifact
 ```json
 {
+  "project_id": "uuid",
   "artifact_id": "uuid",
   "task_id": "uuid",
   "type": "screenshot|log|diff|report",
@@ -75,6 +80,7 @@
 ### Agent Memory (Pending Promotion)
 ```json
 {
+  "project_id": "uuid",
   "agent_memory_id": "uuid",
   "agent_role": "engineer|qa|security",
   "task_id": "uuid",
@@ -88,10 +94,23 @@
 ### Promotion Decision
 ```json
 {
+  "project_id": "uuid",
   "promotion_id": "uuid",
   "agent_memory_id": "uuid",
   "decision": "approved|rejected",
   "reviewer": "orchestrator",
+  "created_at": "timestamp"
+}
+```
+
+### Chat Message
+```json
+{
+  "project_id": "uuid",
+  "message_id": "uuid",
+  "task_id": "uuid",
+  "actor": "user|orchestrator",
+  "text": "string",
   "created_at": "timestamp"
 }
 ```

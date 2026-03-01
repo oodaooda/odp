@@ -34,6 +34,7 @@ Deliver a minimal, end-to-end, spec-gated orchestration loop that proves the con
    - Agent spawn/collection
    - Gate enforcement
    - Crash recovery (resume)
+   - Modular boundary checks
 
 ## Gates (must pass)
 - Phase 1: Orchestrator lifecycle tests

@@ -28,11 +28,13 @@ No non-technical users assumed.
 - Automated regression testing
 - Security review before merge
 - UI and backend validation
+ - Operator chat with orchestrator via dashboard
+ - Multiple concurrent projects with isolated workspaces
 
 ---
 
 ### 4. Non-Goals
-- No conversational chatbot UX
+- No public-facing chatbot UX (end-user support bot)
 - No Discord dependency
 - No autonomous production deploys (yet)
 - No agent self-certification

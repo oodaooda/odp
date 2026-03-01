@@ -6,8 +6,10 @@
 - Worker agents (stateless)
 - Redis (coordination + state)
 - WebSocket server (UI visibility)
- - Postgres (memory source-of-truth)
- - pgvector (retrieval index)
+- Postgres (memory source-of-truth)
+- pgvector (retrieval index)
+- Project router (namespaces per project_id)
+ - Dashboard served on LAN for local network access
 
 ---
 
@@ -25,6 +27,7 @@
 4. Results returned
 5. Gates evaluated
 6. Commit or reject
+ 7. Chat messages persisted as memory events
 
 ---
 

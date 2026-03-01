@@ -3,21 +3,25 @@
 ## 1. Memory Events (source of truth)
 ```sql
 create table memory_events (
+  project_id uuid not null,
   event_id uuid primary key,
   task_id uuid not null,
   type text not null check (type in ('message','decision','artifact','summary','state_transition')),
   actor text not null,
   payload jsonb not null,
+  compaction_of uuid[],
   created_at timestamptz not null default now()
 );
 
 create index memory_events_task_id_idx on memory_events(task_id);
 create index memory_events_type_idx on memory_events(type);
+create index memory_events_project_id_idx on memory_events(project_id);
 ```
 
 ## 2. Agent Memory (pending promotion)
 ```sql
 create table agent_memory (
+  project_id uuid not null,
   agent_memory_id uuid primary key,
   agent_role text not null check (agent_role in ('engineer','qa','security')),
   task_id uuid not null,
@@ -29,11 +33,13 @@ create table agent_memory (
 
 create index agent_memory_task_id_idx on agent_memory(task_id);
 create index agent_memory_status_idx on agent_memory(status);
+create index agent_memory_project_id_idx on agent_memory(project_id);
 ```
 
 ## 3. Promotion Decisions
 ```sql
 create table promotion_decisions (
+  project_id uuid not null,
   promotion_id uuid primary key,
   agent_memory_id uuid not null references agent_memory(agent_memory_id),
   decision text not null check (decision in ('approved','rejected')),
@@ -42,11 +48,13 @@ create table promotion_decisions (
 );
 
 create index promotion_decisions_agent_memory_id_idx on promotion_decisions(agent_memory_id);
+create index promotion_decisions_project_id_idx on promotion_decisions(project_id);
 ```
 
 ## 4. Artifacts
 ```sql
 create table artifacts (
+  project_id uuid not null,
   artifact_id uuid primary key,
   task_id uuid not null,
   type text not null check (type in ('screenshot','log','diff','report')),
@@ -55,6 +63,22 @@ create table artifacts (
 );
 
 create index artifacts_task_id_idx on artifacts(task_id);
+create index artifacts_project_id_idx on artifacts(project_id);
+```
+
+## 4b. Chat Messages
+```sql
+create table chat_messages (
+  project_id uuid not null,
+  message_id uuid primary key,
+  task_id uuid,
+  actor text not null check (actor in ('user','orchestrator')),
+  text text not null,
+  created_at timestamptz not null default now()
+);
+
+create index chat_messages_project_id_idx on chat_messages(project_id);
+create index chat_messages_task_id_idx on chat_messages(task_id);
 ```
 
 ## 5. Vector Index (pgvector)

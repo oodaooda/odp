@@ -4,6 +4,7 @@
 - Multi-process architecture
 - Agents must be isolated
 - Orchestrator is authoritative
+ - Multi-project isolation required (per project_id)
 
 ---
 
@@ -46,7 +47,10 @@
 - All state transitions logged
 - Every task traceable
 - Audit logs immutable
- - Each agent must log: scope-of-work, roadmap/milestones, tests run, and verification results
+- Each agent must log: scope-of-work, roadmap/milestones, tests run, and verification results
+- Chat history must be persisted and queryable per project
+- All destructive actions require explicit confirmation (UI and API)
+ - Chat compaction required when context exceeds limits; summaries must be auditable
 
 ---
 
