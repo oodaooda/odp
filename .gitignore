@@ -1,0 +1,11 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Runtime artifacts
+runtime/
+
+# Test caches
+.pytest_cache/
+.ruff_cache/

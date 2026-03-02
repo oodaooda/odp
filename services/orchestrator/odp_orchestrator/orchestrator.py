@@ -1,0 +1,288 @@
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import os
+import time
+from dataclasses import dataclass
+from typing import Any
+from uuid import UUID, uuid4
+
+from .db import MemoryWriter
+from .events import EventBus, now_ms
+from .models import (
+    AgentResult,
+    AgentRole,
+    GateDecision,
+    GatePhase,
+    Task,
+    TaskCreateRequest,
+    TaskState,
+)
+from .redis_store import RedisStore
+
+
+def compute_spec_hash() -> str:
+    # Minimal spec hash: include the three doc files. This is used for drift detection.
+    paths = [
+        os.getenv("ODP_SPEC_INDEX", "docs/INDEX.md"),
+        os.getenv("ODP_SPEC_M1", "docs/MILESTONE_1.md"),
+        os.getenv("ODP_UI_SPEC", "docs/UI_SPEC.md"),
+    ]
+    h = hashlib.sha256()
+    for p in paths:
+        if os.path.exists(p):
+            with open(p, "rb") as f:
+                h.update(f.read())
+        else:
+            h.update(p.encode("utf-8"))
+            h.update(b":missing")
+    return h.hexdigest()
+
+
+@dataclass
+class Orchestrator:
+    store: RedisStore
+    bus: EventBus
+    memory: MemoryWriter
+
+    async def create_task(self, project_id: UUID, req: TaskCreateRequest) -> Task:
+        t = Task(
+            project_id=project_id,
+            task_id=uuid4(),
+            title=req.title,
+            spec_hash=compute_spec_hash(),
+            state=TaskState.INIT,
+            created_at_ms=now_ms(),
+            updated_at_ms=now_ms(),
+        )
+        await self._save_task(t)
+        await self.store.index_task(project_id, t.task_id)
+        await self.bus.emit(project_id, t.task_id, "task_created", {"task": t.model_dump()})
+        await self.memory.write_memory_event(
+            project_id=project_id,
+            task_id=t.task_id,
+            type_="state_transition",
+            actor="orchestrator",
+            payload={"state": t.state, "title": t.title},
+        )
+        asyncio.create_task(self.run_to_completion(project_id, t.task_id))
+        return t
+
+    async def get_task(self, project_id: UUID, task_id: UUID) -> Task | None:
+        raw = await self.store.get_json(self.store.task_key(project_id, task_id))
+        return Task.model_validate(raw) if raw else None
+
+    async def list_tasks(self, project_id: UUID) -> list[Task]:
+        tasks: list[Task] = []
+        for tid in await self.store.list_task_ids(project_id):
+            t = await self.get_task(project_id, tid)
+            if t:
+                tasks.append(t)
+        tasks.sort(key=lambda x: x.created_at_ms)
+        return tasks
+
+    async def resume_incomplete(self, project_id: UUID) -> int:
+        """Resume any tasks not yet terminal (COMMIT/ROLLBACK)."""
+        n = 0
+        for t in await self.list_tasks(project_id):
+            if t.state not in (TaskState.COMMIT, TaskState.ROLLBACK):
+                asyncio.create_task(self.run_to_completion(project_id, t.task_id))
+                n += 1
+        return n
+
+    async def run_to_completion(self, project_id: UUID, task_id: UUID) -> None:
+        lock_key = f"{self.store.task_key(project_id, task_id)}:lock"
+        # A coarse lock to avoid double-runs.
+        got = await self.store.redis.set(lock_key, "1", nx=True, ex=60)
+        if not got:
+            return
+        try:
+            while True:
+                t = await self.get_task(project_id, task_id)
+                if not t:
+                    return
+                if t.state in (TaskState.COMMIT, TaskState.ROLLBACK):
+                    return
+
+                if t.spec_hash != compute_spec_hash():
+                    await self._fail_gate(
+                        project_id,
+                        task_id,
+                        GatePhase.PHASE_1_LIFECYCLE,
+                        "Spec drift detected; re-approval required.",
+                        {"expected": t.spec_hash, "current": compute_spec_hash()},
+                    )
+                    await self._transition(t, TaskState.ROLLBACK)
+                    continue
+
+                if t.state == TaskState.INIT:
+                    await self._transition(t, TaskState.DISPATCH)
+                    continue
+
+                if t.state == TaskState.DISPATCH:
+                    # Deterministic stub: simulate engineer work.
+                    res = await self._run_engineer(project_id, task_id)
+                    await self._attach_agent_result(t, res)
+                    await self._transition(t, TaskState.COLLECT)
+                    continue
+
+                if t.state == TaskState.COLLECT:
+                    # In this milestone skeleton, COLLECT just confirms agent result exists.
+                    ok = await self._gate_lifecycle(project_id, task_id)
+                    if not ok:
+                        await self._transition(t, TaskState.ROLLBACK)
+                        continue
+                    await self._transition(t, TaskState.VALIDATE)
+                    continue
+
+                if t.state == TaskState.VALIDATE:
+                    ok2 = await self._gate_engineer(project_id, task_id)
+                    ok3 = await self._gate_qa(project_id, task_id)
+                    ok4 = await self._gate_security(project_id, task_id)
+                    ok5 = True  # WS gate is asserted by WS tests
+                    if ok2 and ok3 and ok4 and ok5:
+                        await self._transition(t, TaskState.COMMIT)
+                    else:
+                        await self._transition(t, TaskState.ROLLBACK)
+                    continue
+
+                # If somehow in other states, rollback.
+                await self._transition(t, TaskState.ROLLBACK)
+        finally:
+            await self.store.redis.delete(lock_key)
+
+    async def _save_task(self, t: Task) -> None:
+        await self.store.put_json(self.store.task_key(t.project_id, t.task_id), t.model_dump())
+
+    async def _transition(self, t: Task, new_state: TaskState) -> None:
+        t.state = new_state
+        t.updated_at_ms = now_ms()
+        await self._save_task(t)
+        await self.bus.emit(t.project_id, t.task_id, "task_state", {"state": new_state})
+        await self.memory.write_memory_event(
+            project_id=t.project_id,
+            task_id=t.task_id,
+            type_="state_transition",
+            actor="orchestrator",
+            payload={"state": new_state},
+        )
+
+    async def _attach_agent_result(self, t: Task, res: AgentResult) -> None:
+        key = f"odp:{t.project_id}:task:{t.task_id}:agent_result:{res.role}"
+        await self.store.put_json(key, res.model_dump())
+        if key not in t.agent_results:
+            t.agent_results.append(key)
+        await self._save_task(t)
+        await self.bus.emit(t.project_id, t.task_id, "agent_result", {"result": res.model_dump()})
+        await self.memory.write_memory_event(
+            project_id=t.project_id,
+            task_id=t.task_id,
+            type_="decision",
+            actor=f"agent:{res.role}",
+            payload={"ok": res.ok, "summary": res.summary},
+        )
+
+    async def _write_gate(self, decision: GateDecision) -> None:
+        key = f"odp:{decision.project_id}:task:{decision.task_id}:gate:{decision.phase}"
+        await self.store.put_json(key, decision.model_dump())
+        t = await self.get_task(decision.project_id, decision.task_id)
+        if t and key not in t.gate_decisions:
+            t.gate_decisions.append(key)
+            await self._save_task(t)
+        await self.bus.emit(
+            decision.project_id,
+            decision.task_id,
+            "gate_decision",
+            {"gate": decision.model_dump()},
+        )
+
+    async def _fail_gate(
+        self,
+        project_id: UUID,
+        task_id: UUID,
+        phase: GatePhase,
+        reason: str,
+        evidence: dict[str, Any] | None = None,
+    ) -> None:
+        d = GateDecision(
+            project_id=project_id,
+            task_id=task_id,
+            phase=phase,
+            passed=False,
+            reason=reason,
+            evidence=evidence or {},
+            decided_at_ms=now_ms(),
+        )
+        await self._write_gate(d)
+
+    async def _pass_gate(
+        self,
+        project_id: UUID,
+        task_id: UUID,
+        phase: GatePhase,
+        reason: str,
+        evidence: dict[str, Any] | None = None,
+    ) -> None:
+        d = GateDecision(
+            project_id=project_id,
+            task_id=task_id,
+            phase=phase,
+            passed=True,
+            reason=reason,
+            evidence=evidence or {},
+            decided_at_ms=now_ms(),
+        )
+        await self._write_gate(d)
+
+    async def _run_engineer(self, project_id: UUID, task_id: UUID) -> AgentResult:
+        await asyncio.sleep(0.05)
+        # No real code changes in M1 skeleton; the agent just produces a stub "diff" artifact.
+        diff_text = """diff --git a/README.md b/README.md\nindex 0000000..0000000 100644\n--- a/README.md\n+++ b/README.md\n@@\n+Milestone 1 skeleton run (no-op).\n"""
+        artifact_uri = self._write_artifact_file(project_id, task_id, "diff", diff_text)
+        await self.memory.record_artifact(project_id=project_id, task_id=task_id, type_="diff", uri=artifact_uri)
+        return AgentResult(
+            project_id=project_id,
+            task_id=task_id,
+            role=AgentRole.engineer,
+            ok=True,
+            summary="Produced stub diff artifact and passed local stub checks.",
+            artifacts=[{"type": "diff", "uri": artifact_uri}],
+            logs=["engineer: no-op"],
+            created_at_ms=now_ms(),
+        )
+
+    def _write_artifact_file(self, project_id: UUID, task_id: UUID, type_: str, text_: str) -> str:
+        base = os.getenv("ODP_ARTIFACT_DIR", "runtime/artifacts")
+        path = os.path.join(base, str(project_id), str(task_id))
+        os.makedirs(path, exist_ok=True)
+        fname = f"{int(time.time())}_{type_}.txt"
+        full = os.path.join(path, fname)
+        with open(full, "w", encoding="utf-8") as f:
+            f.write(text_)
+        return full
+
+    async def _gate_lifecycle(self, project_id: UUID, task_id: UUID) -> bool:
+        t = await self.get_task(project_id, task_id)
+        if not t or not t.agent_results:
+            await self._fail_gate(project_id, task_id, GatePhase.PHASE_1_LIFECYCLE, "No agent results")
+            return False
+        await self._pass_gate(project_id, task_id, GatePhase.PHASE_1_LIFECYCLE, "Lifecycle ok")
+        return True
+
+    async def _gate_engineer(self, project_id: UUID, task_id: UUID) -> bool:
+        await self._pass_gate(
+            project_id,
+            task_id,
+            GatePhase.PHASE_2_ENGINEER,
+            "Engineer produced artifacts (stub).",
+        )
+        return True
+
+    async def _gate_qa(self, project_id: UUID, task_id: UUID) -> bool:
+        await self._pass_gate(project_id, task_id, GatePhase.PHASE_3_QA, "QA regression (stub)")
+        return True
+
+    async def _gate_security(self, project_id: UUID, task_id: UUID) -> bool:
+        await self._pass_gate(project_id, task_id, GatePhase.PHASE_4_SECURITY, "Security scan (stub)")
+        return True
