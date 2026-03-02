@@ -6,10 +6,13 @@ import time
 from pathlib import Path
 from uuid import UUID, uuid4
 
+import sys
+
+# Ensure repo root is importable when running under isolated envs.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 import pytest
 from fastapi.testclient import TestClient
-from testcontainers.postgres import PostgresContainer
-from testcontainers.redis import RedisContainer
 
 
 def _wait_until(fn, timeout_s: float = 5.0):
@@ -24,14 +27,13 @@ def _wait_until(fn, timeout_s: float = 5.0):
 
 @pytest.fixture(scope="module")
 def containers():
-    with RedisContainer("redis:7-alpine") as redis:
-        with PostgresContainer("postgres:16-alpine") as pg:
-            # Ensure pgvector is available (image doesn't include it by default on alpine).
-            # For M1 tests we don't rely on vector queries; schema init will attempt CREATE EXTENSION.
-            yield {
-                "redis_url": redis.get_connection_url(),
-                "pg_url": pg.get_connection_url().replace("postgresql://", "postgresql+asyncpg://"),
-            }
+    # Dockerless test harness:
+    # - Redis: fakeredis (in-process)
+    # - DB: sqlite (async)
+    yield {
+        "redis_url": "redis://unused",
+        "pg_url": "sqlite+aiosqlite:///:memory:",
+    }
 
 
 @pytest.fixture()
@@ -49,8 +51,9 @@ def app(containers, monkeypatch):
         monkeypatch.setenv("ODP_SPEC_INDEX", str(idx))
         monkeypatch.setenv("ODP_SPEC_M1", str(m1))
         monkeypatch.setenv("ODP_UI_SPEC", str(ui))
-        monkeypatch.setenv("ODP_REDIS_URL", containers["redis_url"]) 
-        monkeypatch.setenv("ODP_DATABASE_URL", containers["pg_url"]) 
+        monkeypatch.setenv("ODP_REDIS_URL", containers["redis_url"])
+        monkeypatch.setenv("ODP_FAKE_REDIS", "1")
+        monkeypatch.setenv("ODP_DATABASE_URL", containers["pg_url"])
         monkeypatch.setenv("ODP_AUTO_MIGRATE", "1")
 
         from services.orchestrator.odp_orchestrator.api import create_app
@@ -98,7 +101,8 @@ def test_gate_enforcement_spec_drift_rolls_back(app):
         assert t["state"] == "ROLLBACK"
 
 
-def test_crash_recovery_resume_endpoint(app):
+@pytest.mark.asyncio
+async def test_crash_recovery_resume_endpoint(app):
     app_, _files = app
     project_id = uuid4()
 
@@ -108,17 +112,18 @@ def test_crash_recovery_resume_endpoint(app):
         task_id = UUID(task["task_id"])
 
         # Simulate a crash by setting the task state back to DISPATCH.
-        from redis import Redis
-
-        redis = Redis.from_url(os.environ["ODP_REDIS_URL"])
+        # Mutate task state directly (fakeredis). Access the app's redis client.
+        redis = app_.state.redis
         key = f"odp:{project_id}:task:{task_id}"
-        raw = redis.get(key)
+        raw = await redis.get(key)
         assert raw is not None
         import json
 
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8")
         t = json.loads(raw)
         t["state"] = "DISPATCH"
-        redis.set(key, json.dumps(t))
+        await redis.set(key, json.dumps(t))
 
         # Now resume.
         rr = client.post(f"/projects/{project_id}/resume")

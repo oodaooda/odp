@@ -9,6 +9,12 @@ from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSock
 from fastapi.responses import HTMLResponse
 from redis.asyncio import Redis
 
+# Optional: dockerless tests
+try:
+    import fakeredis.aioredis  # type: ignore
+except Exception:  # pragma: no cover
+    fakeredis = None  # type: ignore
+
 from .db import MemoryWriter, create_engine
 from .events import EventBus
 from .models import ChatMessageRequest, Task, TaskCreateRequest
@@ -20,7 +26,16 @@ def create_app() -> FastAPI:
     app = FastAPI(title="ODP Orchestrator", version="0.1")
 
     redis_url = os.getenv("ODP_REDIS_URL", "redis://localhost:6379/0")
-    redis = Redis.from_url(redis_url, decode_responses=False)
+
+    if os.getenv("ODP_FAKE_REDIS", "0") == "1":
+        if fakeredis is None:  # pragma: no cover
+            raise RuntimeError("fakeredis not installed but ODP_FAKE_REDIS=1")
+        redis = fakeredis.aioredis.FakeRedis()
+    else:
+        redis = Redis.from_url(redis_url, decode_responses=False)
+    # Expose clients for tests/debug.
+    app.state.redis = redis
+
     store = RedisStore(redis)
     bus = EventBus(redis=redis, store=store)
     memory = MemoryWriter(create_engine())
