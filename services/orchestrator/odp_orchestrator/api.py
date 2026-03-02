@@ -56,6 +56,15 @@ def create_app() -> FastAPI:
         if os.getenv("ODP_AUTO_MIGRATE", "1") == "1":
             await memory.init_schema()
 
+    @app.on_event("shutdown")
+    async def _shutdown() -> None:
+        # Ensure background tasks (which may own subprocess transports) are cancelled/awaited
+        # before the event loop closes. This keeps pytest clean.
+        for t in list(orch.background_tasks):
+            t.cancel()
+        if orch.background_tasks:
+            await asyncio.gather(*list(orch.background_tasks), return_exceptions=True)
+
     @app.get("/", response_class=HTMLResponse)
     async def dashboard() -> str:
         # Minimal dashboard shell; UI spec is prototype-driven, so we keep this lean.

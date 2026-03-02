@@ -4,7 +4,7 @@ import asyncio
 import hashlib
 import os
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -48,6 +48,7 @@ class Orchestrator:
     bus: EventBus
     memory: MemoryWriter
     agent_cfg: AgentRunConfig
+    background_tasks: set[asyncio.Task[None]] = field(default_factory=set)
 
     async def create_task(self, project_id: UUID, req: TaskCreateRequest) -> Task:
         t = Task(
@@ -69,7 +70,10 @@ class Orchestrator:
             actor="orchestrator",
             payload={"state": t.state, "title": t.title},
         )
-        asyncio.create_task(self.run_to_completion(project_id, t.task_id))
+        # Caller may manage the returned background task; in API we register it for clean shutdown.
+        task = asyncio.create_task(self.run_to_completion(project_id, t.task_id))
+        self.background_tasks.add(task)
+        task.add_done_callback(lambda _t: self.background_tasks.discard(_t))
         return t
 
     async def get_task(self, project_id: UUID, task_id: UUID) -> Task | None:
