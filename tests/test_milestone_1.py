@@ -43,13 +43,16 @@ def app(containers, monkeypatch):
         td = Path(td)
         idx = td / "INDEX.md"
         m1 = td / "MILESTONE_1.md"
+        m2 = td / "MILESTONE_2.md"
         ui = td / "UI_SPEC.md"
         idx.write_text("index", encoding="utf-8")
         m1.write_text("m1", encoding="utf-8")
+        m2.write_text("m2", encoding="utf-8")
         ui.write_text("ui", encoding="utf-8")
 
         monkeypatch.setenv("ODP_SPEC_INDEX", str(idx))
         monkeypatch.setenv("ODP_SPEC_M1", str(m1))
+        monkeypatch.setenv("ODP_SPEC_M2", str(m2))
         monkeypatch.setenv("ODP_UI_SPEC", str(ui))
         monkeypatch.setenv("ODP_REDIS_URL", containers["redis_url"])
         monkeypatch.setenv("ODP_FAKE_REDIS", "1")
@@ -58,6 +61,7 @@ def app(containers, monkeypatch):
         monkeypatch.setenv("ODP_AGENT_TEST_MODE", "1")
         monkeypatch.setenv("ODP_ARTIFACT_DIR", str(td / "artifacts"))
         monkeypatch.setenv("ODP_WORKSPACE_DIR", str(td / "workspaces"))
+        monkeypatch.setenv("ODP_REPO_ROOT", str(Path(__file__).resolve().parents[1]))
 
         from services.orchestrator.odp_orchestrator.api import create_app
 

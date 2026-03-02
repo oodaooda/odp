@@ -168,6 +168,26 @@ class Orchestrator:
         await self.store.put_json(self.store.task_key(t.project_id, t.task_id), t.model_dump())
 
     async def _transition(self, t: Task, new_state: TaskState) -> None:
+        # Avoid clobbering concurrent updates (e.g., gates/artifacts) by merging list fields from
+        # the latest persisted task before writing the new state.
+        cur = await self.get_task(t.project_id, t.task_id)
+        if cur:
+            # Merge + preserve order.
+            seen = set()
+            merged_agent = []
+            for k in (cur.agent_results + t.agent_results):
+                if k not in seen:
+                    merged_agent.append(k)
+                    seen.add(k)
+            seen = set()
+            merged_gates = []
+            for k in (cur.gate_decisions + t.gate_decisions):
+                if k not in seen:
+                    merged_gates.append(k)
+                    seen.add(k)
+            t.agent_results = merged_agent
+            t.gate_decisions = merged_gates
+
         t.state = new_state
         t.updated_at_ms = now_ms()
         await self._save_task(t)
