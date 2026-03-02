@@ -18,3 +18,4 @@
 ## Process
 - `PROCESS.md`
 - `MILESTONE_1.md`
+- `MILESTONE_2.md`
