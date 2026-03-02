@@ -36,10 +36,10 @@ Complete the SRD/ICD memory model by adding:
 - No full UI dashboard rebuild.
 
 ## Deliverables
-- Compaction + summary audit trail
-- Vector index derived from promoted events
-- Hardened workspace git behavior
-- Tests for compaction + vector fallback
+- [x] Compaction + summary audit trail
+- [x] Vector index derived from promoted events (best-effort; pgvector optional)
+- [x] Hardened workspace git behavior
+- [x] Tests for compaction + vector fallback
 
 ## Evidence required
 - Compaction summary + linkage stored

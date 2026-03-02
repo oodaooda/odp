@@ -29,37 +29,37 @@ Upgrade Milestone 1’s in-process stubs into a minimal **multi-process**, evide
 - No full UI build (dashboard remains minimal).
 
 ## Deliverables
-1. Agent runner
-   - Orchestrator spawns `python -m ...` agent entrypoints as subprocesses.
-   - Captures stdout/stderr to artifact files.
-   - Enforces timeouts.
-   - Produces `AgentResult` with artifacts + logs.
+- [x] Agent runner
+  - Orchestrator spawns `python -m ...` agent entrypoints as subprocesses.
+  - Captures stdout/stderr to artifact files.
+  - Enforces timeouts.
+  - Produces `AgentResult` with artifacts + logs.
 
-2. Workspaces
-   - Create per-role workspace directories per task.
-   - Ensure agents cannot write to orchestrator memory store directly.
+- [x] Workspaces
+  - Create per-role workspace directories per task.
+  - Ensure agents cannot write to orchestrator memory store directly.
 
-3. Gates (must pass)
-   - Phase 1: lifecycle tests (existing)
-   - Phase 2: engineer evidence
-     - `pytest -q` output captured
-     - diff artifact produced
-   - Phase 3: QA evidence
-     - `pytest -q` output captured
-   - Phase 4: security evidence
-     - secret scan report captured
-   - Phase 5: WS stability
-     - existing replay + live event tests
+- [x] Gates (must pass)
+  - Phase 1: lifecycle tests (existing)
+  - Phase 2: engineer evidence
+    - `pytest -q` output captured
+    - diff artifact produced
+  - Phase 3: QA evidence
+    - `pytest -q` output captured
+  - Phase 4: security evidence
+    - secret scan report captured
+  - Phase 5: WS stability
+    - existing replay + live event tests
 
-4. Local infra
-   - `infra/docker-compose.yml` includes Redis + Postgres.
-   - Postgres is configured for local dev (pgvector optional; tolerate absence).
+- [x] Local infra
+  - `infra/docker-compose.yml` includes Redis + Postgres.
+  - Postgres is configured for local dev (pgvector optional; tolerate absence).
 
-5. Tests
-   - Agent subprocess execution and result collection
-   - Workspace isolation paths exist
-   - Gate evidence artifacts exist and are recorded
-   - Crash recovery still works
+- [x] Tests
+  - Agent subprocess execution and result collection
+  - Workspace isolation paths exist
+  - Gate evidence artifacts exist and are recorded
+  - Crash recovery still works
 
 ## Evidence required
 - Test output logs (engineer + QA)

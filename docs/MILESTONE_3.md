@@ -47,16 +47,16 @@ Extend the Milestone 2 multi-process workflow with **auditable, orchestrator-con
 - No real "merge to main" automation.
 
 ## Deliverables
-1. DB schema changes + migration via `ODP_AUTO_MIGRATE`
-2. Agent output includes memory_entries (at least in test mode)
-3. Orchestrator records pending entries + emits WS events:
-   - `agent_memory_pending`
-   - `agent_memory_promoted`
-4. API endpoints for listing and promotion
-5. Tests:
-   - Pending memory entries exist after a task completes
-   - Promotion endpoint updates status + writes auditable decision
-   - Retry logic is exercised (forced parse failure once, then succeeds)
+- [x] DB schema changes + migration via `ODP_AUTO_MIGRATE`
+- [x] Agent output includes memory_entries (at least in test mode)
+- [x] Orchestrator records pending entries + emits WS events:
+  - `agent_memory_pending`
+  - `agent_memory_promoted`
+- [x] API endpoints for listing and promotion
+- [x] Tests:
+  - Pending memory entries exist after a task completes
+  - Promotion endpoint updates status + writes auditable decision
+  - Retry logic is exercised (forced parse failure once, then succeeds)
 
 ## Evidence required
 - DB rows for pending entries + promotion decision

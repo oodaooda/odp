@@ -19,22 +19,22 @@ Deliver a minimal, end-to-end, spec-gated orchestration loop that proves the con
 - No model/tool switching logic
 
 ## Deliverables
-1. Orchestrator lifecycle:
-   - INIT → DISPATCH → COLLECT → VALIDATE → COMMIT/ROLLBACK
-   - Resumable on crash (state loaded from Redis)
-2. Redis schemas implemented:
-   - Task
-   - Agent Result
-   - Gate Decision
-3. WebSocket:
-   - Emits task status + gate decisions
-   - Reconnect safe
-4. Tests:
-   - Task lifecycle
-   - Agent spawn/collection
-   - Gate enforcement
-   - Crash recovery (resume)
-   - Modular boundary checks
+- [x] Orchestrator lifecycle:
+  - INIT → DISPATCH → COLLECT → VALIDATE → COMMIT/ROLLBACK
+  - Resumable on crash (state loaded from Redis)
+- [x] Redis schemas implemented:
+  - Task
+  - Agent Result
+  - Gate Decision
+- [x] WebSocket:
+  - Emits task status + gate decisions
+  - Reconnect safe
+- [x] Tests:
+  - Task lifecycle
+  - Agent spawn/collection
+  - Gate enforcement
+  - Crash recovery (resume)
+  - Modular boundary checks
 
 ## Gates (must pass)
 - Phase 1: Orchestrator lifecycle tests
