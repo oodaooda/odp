@@ -39,6 +39,12 @@ create index if not exists memory_events_task_id_idx on memory_events(task_id);
 create index if not exists memory_events_type_idx on memory_events(type);
 create index if not exists memory_events_project_id_idx on memory_events(project_id);
 
+create table if not exists vector_index (
+  event_id uuid primary key,
+  embedding vector(3) not null,
+  created_at timestamptz not null default now()
+);
+
 create table if not exists artifacts (
   project_id uuid not null,
   artifact_id uuid primary key,
@@ -104,6 +110,12 @@ create index if not exists memory_events_task_id_idx on memory_events(task_id);
 create index if not exists memory_events_type_idx on memory_events(type);
 create index if not exists memory_events_project_id_idx on memory_events(project_id);
 
+create table if not exists vector_index (
+  event_id text primary key,
+  embedding text not null,
+  created_at text not null default (datetime('now'))
+);
+
 create table if not exists artifacts (
   project_id text not null,
   artifact_id text primary key,
@@ -157,6 +169,18 @@ create index if not exists chat_messages_task_id_idx on chat_messages(task_id);
 @dataclass
 class MemoryWriter:
     engine: AsyncEngine
+
+    def _fake_embedding(self, text_: str) -> list[float]:
+        """Deterministic tiny embedding for dev/test.
+
+        Real embeddings are out-of-scope for early milestones; this keeps the vector_index pipeline
+        wired without external model calls.
+        """
+        import hashlib
+
+        h = hashlib.sha256(text_.encode("utf-8", errors="ignore")).digest()
+        # 3 floats in [0,1)
+        return [h[0] / 255.0, h[1] / 255.0, h[2] / 255.0]
 
     async def init_schema(self) -> None:
         schema = SCHEMA_SQLITE if self.engine.dialect.name == "sqlite" else SCHEMA_SQL_PG
@@ -215,6 +239,36 @@ class MemoryWriter:
                     "compaction_of": compaction_val,
                 },
             )
+
+            # Derived vector index (best-effort). In environments without pgvector/table support,
+            # this is skipped.
+            try:
+                emb = self._fake_embedding(payload_json)
+                if self.engine.dialect.name == "sqlite":
+                    await conn.execute(
+                        text(
+                            """
+                            insert into vector_index(event_id,embedding)
+                            values (:event_id,:embedding)
+                            on conflict(event_id) do update set embedding=excluded.embedding
+                            """
+                        ),
+                        {"event_id": str(event_id), "embedding": json.dumps(emb)},
+                    )
+                else:
+                    await conn.execute(
+                        text(
+                            """
+                            insert into vector_index(event_id,embedding)
+                            values (:event_id, CAST(:embedding as vector))
+                            on conflict(event_id) do update set embedding=excluded.embedding
+                            """
+                        ),
+                        {"event_id": str(event_id), "embedding": str(emb)},
+                    )
+            except Exception:
+                pass
+
         return event_id
 
     async def write_chat_message(
@@ -267,6 +321,45 @@ class MemoryWriter:
                     "task_id": str(r["task_id"]) if r["task_id"] else None,
                     "actor": str(r["actor"]),
                     "text": str(r["text"]),
+                    "created_at": str(r["created_at"]),
+                }
+            )
+        return out
+
+    async def list_memory_events(
+        self,
+        *,
+        project_id: UUID,
+        task_id: UUID | None = None,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        where = ["project_id=:project_id"]
+        params: dict[str, Any] = {"project_id": str(project_id), "limit": int(limit)}
+        if task_id:
+            where.append("task_id=:task_id")
+            params["task_id"] = str(task_id)
+        sql = (
+            "select event_id,task_id,type,actor,payload,created_at from memory_events where "
+            + " and ".join(where)
+            + " order by created_at desc limit :limit"
+        )
+        async with self.engine.begin() as conn:
+            rows = (await conn.execute(text(sql), params)).mappings().all()
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            payload_val = r["payload"]
+            if isinstance(payload_val, str):
+                try:
+                    payload_val = json.loads(payload_val)
+                except Exception:
+                    payload_val = {"raw": payload_val}
+            out.append(
+                {
+                    "event_id": str(r["event_id"]),
+                    "task_id": str(r["task_id"]),
+                    "type": str(r["type"]),
+                    "actor": str(r["actor"]),
+                    "payload": payload_val,
                     "created_at": str(r["created_at"]),
                 }
             )

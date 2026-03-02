@@ -30,6 +30,12 @@ class PromoteRequest(BaseModel):
     note: str | None = Field(default=None, max_length=2000)
 
 
+class CompactChatRequest(BaseModel):
+    task_id: UUID | None = None
+    keep_last: int = Field(default=50, ge=0, le=5000)
+    compact_n: int = Field(default=50, ge=1, le=5000)
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="ODP Orchestrator", version="0.1")
 
@@ -162,6 +168,47 @@ function connect(project, task){
     ) -> dict[str, Any]:
         msgs = await memory.list_chat_messages(project_id=project_id, task_id=task_id, limit=limit)
         return {"messages": msgs}
+
+    @app.post("/projects/{project_id}/chat/compact")
+    async def compact_chat(project_id: UUID, req: CompactChatRequest) -> dict[str, Any]:
+        # Pull messages oldest->newest for deterministic compaction.
+        msgs = await memory.list_chat_messages(project_id=project_id, task_id=req.task_id, limit=5000)
+        msgs = list(reversed(msgs))
+        if len(msgs) <= req.keep_last:
+            return {"ok": True, "compacted": 0}
+
+        n = min(req.compact_n, max(0, len(msgs) - req.keep_last))
+        to_compact = msgs[:n]
+        compaction_of = [UUID(m["message_id"]) for m in to_compact]
+        text = "\n".join([m["text"] for m in to_compact])
+        summary = (text[:4000] + "…") if len(text) > 4000 else text
+        task_id: UUID
+        if req.task_id:
+            task_id = req.task_id
+        elif to_compact and to_compact[-1]["task_id"]:
+            task_id = UUID(to_compact[-1]["task_id"])
+        else:
+            raise HTTPException(status_code=400, detail="task_id required for compaction")
+
+        await memory.write_memory_event(
+            project_id=project_id,
+            task_id=task_id,
+            type_="summary",
+            actor="orchestrator",
+            payload={"summary": summary, "compacted": n},
+            compaction_of=compaction_of,
+        )
+        await bus.emit(project_id, task_id, "chat_compacted", {"compacted": n})
+        return {"ok": True, "compacted": n}
+
+    @app.get("/projects/{project_id}/memory-events")
+    async def list_memory_events(
+        project_id: UUID,
+        task_id: UUID | None = None,
+        limit: int = Query(default=200, ge=1, le=1000),
+    ) -> dict[str, Any]:
+        evs = await memory.list_memory_events(project_id=project_id, task_id=task_id, limit=limit)
+        return {"events": evs}
 
     @app.get("/projects/{project_id}/agent-memory")
     async def list_agent_memory(
