@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -18,6 +19,7 @@ except Exception:  # pragma: no cover
 from .db import MemoryWriter, create_engine
 from .events import EventBus
 from .models import ChatMessageRequest, Task, TaskCreateRequest
+from .agent_runner import AgentRunConfig
 from .orchestrator import Orchestrator
 from .redis_store import RedisStore
 
@@ -39,7 +41,15 @@ def create_app() -> FastAPI:
     store = RedisStore(redis)
     bus = EventBus(redis=redis, store=store)
     memory = MemoryWriter(create_engine())
-    orch = Orchestrator(store=store, bus=bus, memory=memory)
+
+    repo_root = Path(os.getenv("ODP_REPO_ROOT", Path(__file__).resolve().parents[3]))
+    agent_cfg = AgentRunConfig(
+        repo_root=repo_root,
+        workspaces_root=Path(os.getenv("ODP_WORKSPACE_DIR", "runtime/workspaces")),
+        artifacts_root=Path(os.getenv("ODP_ARTIFACT_DIR", "runtime/artifacts")),
+        timeout_s=int(os.getenv("ODP_AGENT_TIMEOUT_S", "1200")),
+    )
+    orch = Orchestrator(store=store, bus=bus, memory=memory, agent_cfg=agent_cfg)
 
     @app.on_event("startup")
     async def _startup() -> None:

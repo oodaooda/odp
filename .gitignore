@@ -3,6 +3,11 @@ __pycache__/
 *.pyc
 .venv/
 
+# Packaging
+*.egg-info/
+dist/
+build/
+
 # Runtime artifacts
 runtime/
 

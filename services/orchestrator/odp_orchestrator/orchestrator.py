@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 
 from .db import MemoryWriter
 from .events import EventBus, now_ms
+from .agent_runner import AgentRunConfig, run_agent
 from .models import (
     AgentResult,
     AgentRole,
@@ -23,10 +24,11 @@ from .redis_store import RedisStore
 
 
 def compute_spec_hash() -> str:
-    # Minimal spec hash: include the three doc files. This is used for drift detection.
+    # Minimal spec hash: include the index + milestone specs + UI spec. Used for drift detection.
     paths = [
         os.getenv("ODP_SPEC_INDEX", "docs/INDEX.md"),
         os.getenv("ODP_SPEC_M1", "docs/MILESTONE_1.md"),
+        os.getenv("ODP_SPEC_M2", "docs/MILESTONE_2.md"),
         os.getenv("ODP_UI_SPEC", "docs/UI_SPEC.md"),
     ]
     h = hashlib.sha256()
@@ -45,6 +47,7 @@ class Orchestrator:
     store: RedisStore
     bus: EventBus
     memory: MemoryWriter
+    agent_cfg: AgentRunConfig
 
     async def create_task(self, project_id: UUID, req: TaskCreateRequest) -> Task:
         t = Task(
@@ -137,6 +140,14 @@ class Orchestrator:
                     continue
 
                 if t.state == TaskState.VALIDATE:
+                    # Ensure QA + security results exist (run once).
+                    if not any(":agent_result:qa" in k for k in t.agent_results):
+                        qa_res = await self._run_qa(project_id, task_id)
+                        await self._attach_agent_result(t, qa_res)
+                    if not any(":agent_result:security" in k for k in t.agent_results):
+                        sec_res = await self._run_security(project_id, task_id)
+                        await self._attach_agent_result(t, sec_res)
+
                     ok2 = await self._gate_engineer(project_id, task_id)
                     ok3 = await self._gate_qa(project_id, task_id)
                     ok4 = await self._gate_security(project_id, task_id)
@@ -175,12 +186,34 @@ class Orchestrator:
             t.agent_results.append(key)
         await self._save_task(t)
         await self.bus.emit(t.project_id, t.task_id, "agent_result", {"result": res.model_dump()})
+
+        # Persist artifacts.
+        for a in res.artifacts:
+            try:
+                type_ = str(a.get("type") or "log")
+                if type_ not in {"screenshot", "log", "diff", "report"}:
+                    type_ = "log"
+                uri = str(a.get("uri") or "")
+                if uri:
+                    artifact_id = await self.memory.record_artifact(
+                        project_id=t.project_id, task_id=t.task_id, type_=type_, uri=uri
+                    )
+                    await self.bus.emit(
+                        t.project_id,
+                        t.task_id,
+                        "artifact_recorded",
+                        {"artifact": {"artifact_id": str(artifact_id), "type": type_, "uri": uri}},
+                    )
+            except Exception:
+                # Don't fail task on evidence recording issues in M2.
+                pass
+
         await self.memory.write_memory_event(
             project_id=t.project_id,
             task_id=t.task_id,
             type_="decision",
             actor=f"agent:{res.role}",
-            payload={"ok": res.ok, "summary": res.summary},
+            payload={"ok": res.ok, "summary": res.summary, "artifacts": res.artifacts},
         )
 
     async def _write_gate(self, decision: GateDecision) -> None:
@@ -236,21 +269,22 @@ class Orchestrator:
         await self._write_gate(d)
 
     async def _run_engineer(self, project_id: UUID, task_id: UUID) -> AgentResult:
-        await asyncio.sleep(0.05)
-        # No real code changes in M1 skeleton; the agent just produces a stub "diff" artifact.
-        diff_text = """diff --git a/README.md b/README.md\nindex 0000000..0000000 100644\n--- a/README.md\n+++ b/README.md\n@@\n+Milestone 1 skeleton run (no-op).\n"""
-        artifact_uri = self._write_artifact_file(project_id, task_id, "diff", diff_text)
-        await self.memory.record_artifact(project_id=project_id, task_id=task_id, type_="diff", uri=artifact_uri)
-        return AgentResult(
+        return await run_agent(cfg=self.agent_cfg, project_id=project_id, task_id=task_id, role=AgentRole.engineer)
+
+    async def _run_qa(self, project_id: UUID, task_id: UUID) -> AgentResult:
+        # QA validates spec hash as part of its evidence.
+        t = await self.get_task(project_id, task_id)
+        expected = t.spec_hash if t else None
+        return await run_agent(
+            cfg=self.agent_cfg,
             project_id=project_id,
             task_id=task_id,
-            role=AgentRole.engineer,
-            ok=True,
-            summary="Produced stub diff artifact and passed local stub checks.",
-            artifacts=[{"type": "diff", "uri": artifact_uri}],
-            logs=["engineer: no-op"],
-            created_at_ms=now_ms(),
+            role=AgentRole.qa,
+            expected_spec_hash=expected,
         )
+
+    async def _run_security(self, project_id: UUID, task_id: UUID) -> AgentResult:
+        return await run_agent(cfg=self.agent_cfg, project_id=project_id, task_id=task_id, role=AgentRole.security)
 
     def _write_artifact_file(self, project_id: UUID, task_id: UUID, type_: str, text_: str) -> str:
         base = os.getenv("ODP_ARTIFACT_DIR", "runtime/artifacts")
@@ -262,6 +296,11 @@ class Orchestrator:
             f.write(text_)
         return full
 
+    async def _get_agent_result(self, project_id: UUID, task_id: UUID, role: AgentRole) -> AgentResult | None:
+        key = f"odp:{project_id}:task:{task_id}:agent_result:{role}"
+        raw = await self.store.get_json(key)
+        return AgentResult.model_validate(raw) if raw else None
+
     async def _gate_lifecycle(self, project_id: UUID, task_id: UUID) -> bool:
         t = await self.get_task(project_id, task_id)
         if not t or not t.agent_results:
@@ -271,18 +310,73 @@ class Orchestrator:
         return True
 
     async def _gate_engineer(self, project_id: UUID, task_id: UUID) -> bool:
+        res = await self._get_agent_result(project_id, task_id, AgentRole.engineer)
+        if not res:
+            await self._fail_gate(project_id, task_id, GatePhase.PHASE_2_ENGINEER, "Missing engineer result")
+            return False
+        if not res.ok:
+            await self._fail_gate(
+                project_id,
+                task_id,
+                GatePhase.PHASE_2_ENGINEER,
+                "Engineer reported failure",
+                {"summary": res.summary, "artifacts": res.artifacts},
+            )
+            return False
+        if not res.artifacts:
+            await self._fail_gate(project_id, task_id, GatePhase.PHASE_2_ENGINEER, "No engineer artifacts")
+            return False
         await self._pass_gate(
             project_id,
             task_id,
             GatePhase.PHASE_2_ENGINEER,
-            "Engineer produced artifacts (stub).",
+            "Engineer passed and produced artifacts",
+            {"summary": res.summary, "artifacts": res.artifacts},
         )
         return True
 
     async def _gate_qa(self, project_id: UUID, task_id: UUID) -> bool:
-        await self._pass_gate(project_id, task_id, GatePhase.PHASE_3_QA, "QA regression (stub)")
+        res = await self._get_agent_result(project_id, task_id, AgentRole.qa)
+        if not res:
+            await self._fail_gate(project_id, task_id, GatePhase.PHASE_3_QA, "Missing QA result")
+            return False
+        if not res.ok:
+            await self._fail_gate(
+                project_id,
+                task_id,
+                GatePhase.PHASE_3_QA,
+                "QA reported failure",
+                {"summary": res.summary, "artifacts": res.artifacts},
+            )
+            return False
+        await self._pass_gate(
+            project_id,
+            task_id,
+            GatePhase.PHASE_3_QA,
+            "QA regression passed",
+            {"summary": res.summary, "artifacts": res.artifacts},
+        )
         return True
 
     async def _gate_security(self, project_id: UUID, task_id: UUID) -> bool:
-        await self._pass_gate(project_id, task_id, GatePhase.PHASE_4_SECURITY, "Security scan (stub)")
+        res = await self._get_agent_result(project_id, task_id, AgentRole.security)
+        if not res:
+            await self._fail_gate(project_id, task_id, GatePhase.PHASE_4_SECURITY, "Missing security result")
+            return False
+        if not res.ok:
+            await self._fail_gate(
+                project_id,
+                task_id,
+                GatePhase.PHASE_4_SECURITY,
+                "Security reported failure",
+                {"summary": res.summary, "artifacts": res.artifacts},
+            )
+            return False
+        await self._pass_gate(
+            project_id,
+            task_id,
+            GatePhase.PHASE_4_SECURITY,
+            "Security checks passed",
+            {"summary": res.summary, "artifacts": res.artifacts},
+        )
         return True

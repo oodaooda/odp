@@ -55,6 +55,9 @@ def app(containers, monkeypatch):
         monkeypatch.setenv("ODP_FAKE_REDIS", "1")
         monkeypatch.setenv("ODP_DATABASE_URL", containers["pg_url"])
         monkeypatch.setenv("ODP_AUTO_MIGRATE", "1")
+        monkeypatch.setenv("ODP_AGENT_TEST_MODE", "1")
+        monkeypatch.setenv("ODP_ARTIFACT_DIR", str(td / "artifacts"))
+        monkeypatch.setenv("ODP_WORKSPACE_DIR", str(td / "workspaces"))
 
         from services.orchestrator.odp_orchestrator.api import create_app
 
