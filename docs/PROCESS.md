@@ -28,7 +28,9 @@ No commit or merge is allowed unless all gates pass and evidence is recorded.
 - Source diffs
 - Final gate decision recorded in state
 - Memory events stored in Postgres (append-only)
- - Scope-of-work, roadmap, and verification logs attached per task
+- Scope-of-work, roadmap, and verification logs attached per task
+- Commits and pushes only after tests pass; never push on failing tests
+ - `.gitignore` must be maintained to prevent non-essential artifacts from being committed
 
 ## 5. Suggested first milestone
 - Minimal orchestrator service with task lifecycle
