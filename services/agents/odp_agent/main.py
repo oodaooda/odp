@@ -15,6 +15,7 @@ class AgentOutput:
     summary: str
     artifacts: list[dict[str, Any]]
     logs: list[str]
+    memory_entries: list[dict[str, Any]]
 
 
 def _run(cmd: list[str], cwd: Path, timeout_s: int = 600) -> subprocess.CompletedProcess:
@@ -45,6 +46,10 @@ def _engineer(workspace: Path, artifacts_dir: Path) -> AgentOutput:
             summary="engineer test-mode: produced diff + pytest artifacts",
             artifacts=[{"type": "diff", "uri": diff_uri}, {"type": "log", "uri": test_uri}],
             logs=["engineer:test-mode"],
+            memory_entries=[
+                {"type": "scope_of_work", "payload": {"summary": "(test mode) produce diff + run unit tests"}},
+                {"type": "test_log", "payload": {"command": "pytest -q", "result": "pass (test mode)"}},
+            ],
         )
 
     # Real mode: run local pytest and capture output.
@@ -60,6 +65,10 @@ def _engineer(workspace: Path, artifacts_dir: Path) -> AgentOutput:
         summary="engineer: pytest " + ("passed" if ok else "failed"),
         artifacts=[{"type": "diff", "uri": diff_uri}, {"type": "log", "uri": test_uri}],
         logs=[f"pytest_rc={tests.returncode}"],
+        memory_entries=[
+            {"type": "test_log", "payload": {"command": "pytest -q", "returncode": tests.returncode}},
+            {"type": "verification_result", "payload": {"ok": ok, "summary": "engineer unit tests"}},
+        ],
     )
 
 
@@ -69,6 +78,8 @@ def _compute_spec_hash(workspace: Path) -> str:
         os.getenv("ODP_SPEC_INDEX", "docs/INDEX.md"),
         os.getenv("ODP_SPEC_M1", "docs/MILESTONE_1.md"),
         os.getenv("ODP_SPEC_M2", "docs/MILESTONE_2.md"),
+        os.getenv("ODP_SPEC_M3", "docs/MILESTONE_3.md"),
+        os.getenv("ODP_SPEC_M4", "docs/MILESTONE_4.md"),
         os.getenv("ODP_UI_SPEC", "docs/UI_SPEC.md"),
     ]
     import hashlib
@@ -100,6 +111,9 @@ def _qa(workspace: Path, artifacts_dir: Path) -> AgentOutput:
             summary="qa test-mode: regression passed" + ("" if spec_ok else " (spec hash mismatch)"),
             artifacts=[{"type": "log", "uri": qa_uri}, {"type": "report", "uri": spec_uri}],
             logs=["qa:test-mode", f"spec_ok={spec_ok}"],
+            memory_entries=[
+                {"type": "verification_result", "payload": {"ok": ok, "spec_ok": spec_ok, "mode": "test"}},
+            ],
         )
 
     tests = _run(["python", "-m", "pytest", "-q"], cwd=workspace, timeout_s=1200)
@@ -114,6 +128,10 @@ def _qa(workspace: Path, artifacts_dir: Path) -> AgentOutput:
         summary=summary,
         artifacts=[{"type": "log", "uri": qa_uri}, {"type": "report", "uri": spec_uri}],
         logs=[f"pytest_rc={tests.returncode}", f"spec_ok={spec_ok}"],
+        memory_entries=[
+            {"type": "test_log", "payload": {"command": "pytest -q", "returncode": tests.returncode}},
+            {"type": "verification_result", "payload": {"ok": ok, "spec_ok": spec_ok}},
+        ],
     )
 
 
@@ -180,6 +198,9 @@ def _security(workspace: Path, artifacts_dir: Path) -> AgentOutput:
                 {"type": "report", "uri": dep_uri},
             ],
             logs=["security:test-mode"],
+            memory_entries=[
+                {"type": "verification_result", "payload": {"ok": True, "summary": "security scan (test mode)"}},
+            ],
         )
 
     hits: list[str] = []
@@ -218,6 +239,12 @@ def _security(workspace: Path, artifacts_dir: Path) -> AgentOutput:
             {"type": "report", "uri": dep_uri},
         ],
         logs=[f"secret_hits={len(hits)}", f"deps_ok={deps_ok}"],
+        memory_entries=[
+            {
+                "type": "verification_result",
+                "payload": {"ok": ok, "secrets_ok": secrets_ok, "deps_ok": deps_ok, "secret_hits": len(hits)},
+            },
+        ],
     )
 
 

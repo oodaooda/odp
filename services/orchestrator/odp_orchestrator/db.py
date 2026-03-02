@@ -50,6 +50,32 @@ create table if not exists artifacts (
 create index if not exists artifacts_task_id_idx on artifacts(task_id);
 create index if not exists artifacts_project_id_idx on artifacts(project_id);
 
+create table if not exists agent_memory_pending (
+  project_id uuid not null,
+  agent_memory_id uuid primary key,
+  task_id uuid not null,
+  role text not null check (role in ('engineer','qa','security')),
+  type text not null check (type in ('scope_of_work','roadmap','test_log','verification_result')),
+  payload jsonb not null,
+  status text not null check (status in ('pending','approved','rejected')) default 'pending',
+  created_at timestamptz not null default now()
+);
+create index if not exists agent_memory_pending_task_id_idx on agent_memory_pending(task_id);
+create index if not exists agent_memory_pending_project_id_idx on agent_memory_pending(project_id);
+create index if not exists agent_memory_pending_status_idx on agent_memory_pending(status);
+
+create table if not exists promotion_decisions (
+  project_id uuid not null,
+  promotion_id uuid primary key,
+  agent_memory_id uuid not null,
+  decision text not null check (decision in ('approved','rejected')),
+  note text,
+  reviewer text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists promotion_decisions_agent_memory_id_idx on promotion_decisions(agent_memory_id);
+create index if not exists promotion_decisions_project_id_idx on promotion_decisions(project_id);
+
 create table if not exists chat_messages (
   project_id uuid not null,
   message_id uuid primary key,
@@ -88,6 +114,32 @@ create table if not exists artifacts (
 );
 create index if not exists artifacts_task_id_idx on artifacts(task_id);
 create index if not exists artifacts_project_id_idx on artifacts(project_id);
+
+create table if not exists agent_memory_pending (
+  project_id text not null,
+  agent_memory_id text primary key,
+  task_id text not null,
+  role text not null,
+  type text not null,
+  payload text not null,
+  status text not null default 'pending',
+  created_at text not null default (datetime('now'))
+);
+create index if not exists agent_memory_pending_task_id_idx on agent_memory_pending(task_id);
+create index if not exists agent_memory_pending_project_id_idx on agent_memory_pending(project_id);
+create index if not exists agent_memory_pending_status_idx on agent_memory_pending(status);
+
+create table if not exists promotion_decisions (
+  project_id text not null,
+  promotion_id text primary key,
+  agent_memory_id text not null,
+  decision text not null,
+  note text,
+  reviewer text not null,
+  created_at text not null default (datetime('now'))
+);
+create index if not exists promotion_decisions_agent_memory_id_idx on promotion_decisions(agent_memory_id);
+create index if not exists promotion_decisions_project_id_idx on promotion_decisions(project_id);
 
 create table if not exists chat_messages (
   project_id text not null,
@@ -187,6 +239,39 @@ class MemoryWriter:
             )
         return message_id
 
+    async def list_chat_messages(
+        self,
+        *,
+        project_id: UUID,
+        task_id: UUID | None = None,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        where = ["project_id=:project_id"]
+        params: dict[str, Any] = {"project_id": str(project_id), "limit": int(limit)}
+        if task_id:
+            where.append("task_id=:task_id")
+            params["task_id"] = str(task_id)
+
+        sql = (
+            "select message_id,task_id,actor,text,created_at from chat_messages where "
+            + " and ".join(where)
+            + " order by created_at desc limit :limit"
+        )
+        async with self.engine.begin() as conn:
+            rows = (await conn.execute(text(sql), params)).mappings().all()
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            out.append(
+                {
+                    "message_id": str(r["message_id"]),
+                    "task_id": str(r["task_id"]) if r["task_id"] else None,
+                    "actor": str(r["actor"]),
+                    "text": str(r["text"]),
+                    "created_at": str(r["created_at"]),
+                }
+            )
+        return out
+
     async def record_artifact(self, *, project_id: UUID, task_id: UUID, type_: str, uri: str) -> UUID:
         artifact_id = uuid4()
         async with self.engine.begin() as conn:
@@ -206,3 +291,163 @@ class MemoryWriter:
                 },
             )
         return artifact_id
+
+    async def record_agent_memory_pending(
+        self,
+        *,
+        project_id: UUID,
+        task_id: UUID,
+        role: str,
+        type_: str,
+        payload: dict[str, Any],
+    ) -> UUID:
+        agent_memory_id = uuid4()
+        payload_json = json.dumps(payload)
+
+        if self.engine.dialect.name == "sqlite":
+            stmt = """
+                insert into agent_memory_pending(project_id,agent_memory_id,task_id,role,type,payload,status)
+                values (:project_id,:agent_memory_id,:task_id,:role,:type,:payload,'pending')
+            """
+        else:
+            stmt = """
+                insert into agent_memory_pending(project_id,agent_memory_id,task_id,role,type,payload,status)
+                values (:project_id,:agent_memory_id,:task_id,:role,:type,:payload::jsonb,'pending')
+            """
+
+        async with self.engine.begin() as conn:
+            await conn.execute(
+                text(stmt),
+                {
+                    "project_id": str(project_id),
+                    "agent_memory_id": str(agent_memory_id),
+                    "task_id": str(task_id),
+                    "role": role,
+                    "type": type_,
+                    "payload": payload_json,
+                },
+            )
+        return agent_memory_id
+
+    async def promote_agent_memory(
+        self,
+        *,
+        project_id: UUID,
+        agent_memory_id: UUID,
+        decision: str,
+        reviewer: str,
+        note: str | None = None,
+    ) -> UUID:
+        promotion_id = uuid4()
+        async with self.engine.begin() as conn:
+            await conn.execute(
+                text(
+                    """
+                    insert into promotion_decisions(project_id,promotion_id,agent_memory_id,decision,note,reviewer)
+                    values (:project_id,:promotion_id,:agent_memory_id,:decision,:note,:reviewer)
+                    """
+                ),
+                {
+                    "project_id": str(project_id),
+                    "promotion_id": str(promotion_id),
+                    "agent_memory_id": str(agent_memory_id),
+                    "decision": decision,
+                    "note": note,
+                    "reviewer": reviewer,
+                },
+            )
+            await conn.execute(
+                text(
+                    """
+                    update agent_memory_pending
+                    set status=:status
+                    where project_id=:project_id and agent_memory_id=:agent_memory_id
+                    """
+                ),
+                {
+                    "status": decision,
+                    "project_id": str(project_id),
+                    "agent_memory_id": str(agent_memory_id),
+                },
+            )
+        return promotion_id
+
+    async def list_agent_memory(
+        self,
+        *,
+        project_id: UUID,
+        status: str | None = None,
+        task_id: UUID | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        where = ["project_id=:project_id"]
+        params: dict[str, Any] = {"project_id": str(project_id), "limit": int(limit)}
+        if status:
+            where.append("status=:status")
+            params["status"] = status
+        if task_id:
+            where.append("task_id=:task_id")
+            params["task_id"] = str(task_id)
+        sql = (
+            "select agent_memory_id,task_id,role,type,payload,status,created_at "
+            "from agent_memory_pending where "
+            + " and ".join(where)
+            + " order by created_at desc limit :limit"
+        )
+
+        async with self.engine.begin() as conn:
+            rows = (await conn.execute(text(sql), params)).mappings().all()
+
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            payload_val = r["payload"]
+            if isinstance(payload_val, str):
+                try:
+                    payload_val = json.loads(payload_val)
+                except Exception:
+                    payload_val = {"raw": payload_val}
+            out.append(
+                {
+                    "agent_memory_id": str(r["agent_memory_id"]),
+                    "task_id": str(r["task_id"]),
+                    "role": str(r["role"]),
+                    "type": str(r["type"]),
+                    "payload": payload_val,
+                    "status": str(r["status"]),
+                    "created_at": str(r["created_at"]),
+                }
+            )
+        return out
+
+    async def get_agent_memory_meta(
+        self, *, project_id: UUID, agent_memory_id: UUID
+    ) -> dict[str, Any] | None:
+        sql = """
+            select agent_memory_id,task_id,role,type,payload,status
+            from agent_memory_pending
+            where project_id=:project_id and agent_memory_id=:agent_memory_id
+            limit 1
+        """
+        async with self.engine.begin() as conn:
+            row = (
+                await conn.execute(
+                    text(sql),
+                    {"project_id": str(project_id), "agent_memory_id": str(agent_memory_id)},
+                )
+            ).mappings().first()
+        if not row:
+            return None
+        payload_val = row["payload"]
+        if isinstance(payload_val, str):
+            try:
+                payload_val = json.loads(payload_val)
+            except Exception:
+                payload_val = {"raw": payload_val}
+        return {
+            "agent_memory_id": str(row["agent_memory_id"]),
+            "task_id": str(row["task_id"]),
+            "role": str(row["role"]),
+            "type": str(row["type"]),
+            "payload": payload_val,
+            "status": str(row["status"]),
+        }

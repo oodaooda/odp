@@ -143,6 +143,7 @@ async def run_agent(
             summary=f"{role} timed out",
             artifacts=[{"type": "log", "uri": stdout_uri}],
             logs=["timeout"],
+            memory_entries=[],
             created_at_ms=now_ms(),
         )
 
@@ -170,5 +171,6 @@ async def run_agent(
         summary=str(payload.get("summary")),
         artifacts=artifacts,
         logs=list(payload.get("logs") or []),
+        memory_entries=list(payload.get("memory_entries") or []),
         created_at_ms=now_ms(),
     )

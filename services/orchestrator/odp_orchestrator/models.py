@@ -48,6 +48,9 @@ class AgentResult(BaseModel):
     summary: str
     artifacts: list[dict[str, Any]] = Field(default_factory=list)
     logs: list[str] = Field(default_factory=list)
+    # Agent-proposed memory entries (pending promotion). Orchestrator remains the only writer to
+    # source-of-truth memory_events.
+    memory_entries: list[dict[str, Any]] = Field(default_factory=list)
     created_at_ms: int
 
 

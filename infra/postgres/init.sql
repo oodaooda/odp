@@ -36,6 +36,32 @@ CREATE TABLE IF NOT EXISTS artifacts (
 CREATE INDEX IF NOT EXISTS artifacts_task_id_idx ON artifacts(task_id);
 CREATE INDEX IF NOT EXISTS artifacts_project_id_idx ON artifacts(project_id);
 
+CREATE TABLE IF NOT EXISTS agent_memory_pending (
+  project_id uuid NOT NULL,
+  agent_memory_id uuid PRIMARY KEY,
+  task_id uuid NOT NULL,
+  role text NOT NULL CHECK (role IN ('engineer','qa','security')),
+  type text NOT NULL CHECK (type IN ('scope_of_work','roadmap','test_log','verification_result')),
+  payload jsonb NOT NULL,
+  status text NOT NULL CHECK (status IN ('pending','approved','rejected')) DEFAULT 'pending',
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS agent_memory_pending_task_id_idx ON agent_memory_pending(task_id);
+CREATE INDEX IF NOT EXISTS agent_memory_pending_project_id_idx ON agent_memory_pending(project_id);
+CREATE INDEX IF NOT EXISTS agent_memory_pending_status_idx ON agent_memory_pending(status);
+
+CREATE TABLE IF NOT EXISTS promotion_decisions (
+  project_id uuid NOT NULL,
+  promotion_id uuid PRIMARY KEY,
+  agent_memory_id uuid NOT NULL,
+  decision text NOT NULL CHECK (decision IN ('approved','rejected')),
+  note text,
+  reviewer text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS promotion_decisions_agent_memory_id_idx ON promotion_decisions(agent_memory_id);
+CREATE INDEX IF NOT EXISTS promotion_decisions_project_id_idx ON promotion_decisions(project_id);
+
 CREATE TABLE IF NOT EXISTS chat_messages (
   project_id uuid NOT NULL,
   message_id uuid PRIMARY KEY,

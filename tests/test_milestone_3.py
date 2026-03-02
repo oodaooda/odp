@@ -57,12 +57,12 @@ def app(monkeypatch):
         yield create_app(), td
 
 
-def test_m2_agent_artifacts_and_gates(app):
-    app_, td = app
+def test_m3_pending_agent_memory_and_promotion(app):
+    app_, _td = app
     project_id = uuid4()
 
     with TestClient(app_) as client:
-        r = client.post(f"/projects/{project_id}/tasks", json={"title": "m2"})
+        r = client.post(f"/projects/{project_id}/tasks", json={"title": "m3"})
         assert r.status_code == 200
         task_id = UUID(r.json()["task_id"])
 
@@ -74,29 +74,33 @@ def test_m2_agent_artifacts_and_gates(app):
         assert t is not None
         assert t["state"] == "COMMIT"
 
-        # Agent results recorded.
-        assert any("agent_result:engineer" in k for k in t["agent_results"])
-        assert any("agent_result:qa" in k for k in t["agent_results"])
-        assert any("agent_result:security" in k for k in t["agent_results"])
+        # Pending agent memory should exist.
+        rr = client.get(f"/projects/{project_id}/agent-memory", params={"status": "pending", "task_id": str(task_id)})
+        assert rr.status_code == 200
+        rows = rr.json()["agent_memory"]
+        assert len(rows) >= 1
+        agent_memory_id = rows[0]["agent_memory_id"]
 
-        # Gate decisions recorded (assert phases present by key).
-        gates = "\n".join(t["gate_decisions"])
-        assert "phase_2_engineer" in gates
-        assert "phase_3_qa" in gates
-        assert "phase_4_security" in gates
-        assert "phase_5_ws" in gates
+        # Promote one entry.
+        pr = client.post(
+            f"/projects/{project_id}/agent-memory/{agent_memory_id}/promote",
+            json={"decision": "approved", "note": "ok"},
+        )
+        assert pr.status_code == 200
 
-        # Workspace isolation paths exist.
-        ws = td / "workspaces" / str(project_id) / str(task_id)
-        assert (ws / "engineer").exists()
-        assert (ws / "qa").exists()
-        assert (ws / "security").exists()
+        # It should now show up as approved.
+        rr2 = client.get(
+            f"/projects/{project_id}/agent-memory",
+            params={"status": "approved", "task_id": str(task_id)},
+        )
+        assert rr2.status_code == 200
+        approved = rr2.json()["agent_memory"]
+        assert any(r["agent_memory_id"] == agent_memory_id for r in approved)
 
-        # Artifact files exist.
-        base = td / "artifacts" / str(project_id) / str(task_id) / "agents"
-        assert (base / "engineer" / "engineer_diff.patch").exists()
-        assert (base / "engineer" / "engineer_pytest.txt").exists()
-        assert (base / "qa" / "qa_pytest.txt").exists()
-        assert (base / "qa" / "qa_spec_hash.txt").exists()
-        assert (base / "security" / "security_scan.txt").exists()
-        assert (base / "security" / "dependency_sanity.txt").exists()
+        # Chat round-trip
+        c1 = client.post(f"/projects/{project_id}/chat", json={"text": "hello", "task_id": str(task_id)})
+        assert c1.status_code == 200
+        c2 = client.get(f"/projects/{project_id}/chat", params={"task_id": str(task_id), "limit": 10})
+        assert c2.status_code == 200
+        msgs = c2.json()["messages"]
+        assert any(m["text"] == "hello" for m in msgs)

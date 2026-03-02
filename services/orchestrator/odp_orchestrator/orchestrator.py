@@ -29,6 +29,8 @@ def compute_spec_hash() -> str:
         os.getenv("ODP_SPEC_INDEX", "docs/INDEX.md"),
         os.getenv("ODP_SPEC_M1", "docs/MILESTONE_1.md"),
         os.getenv("ODP_SPEC_M2", "docs/MILESTONE_2.md"),
+        os.getenv("ODP_SPEC_M3", "docs/MILESTONE_3.md"),
+        os.getenv("ODP_SPEC_M4", "docs/MILESTONE_4.md"),
         os.getenv("ODP_UI_SPEC", "docs/UI_SPEC.md"),
     ]
     h = hashlib.sha256()
@@ -233,12 +235,42 @@ class Orchestrator:
                 # Don't fail task on evidence recording issues in M2.
                 pass
 
+        # Persist pending agent memory proposals.
+        for me in res.memory_entries:
+            try:
+                type_ = str(me.get("type") or "")
+                payload = me.get("payload")
+                if not isinstance(payload, dict):
+                    payload = {"value": payload}
+                if type_ not in {"scope_of_work", "roadmap", "test_log", "verification_result"}:
+                    continue
+                agent_memory_id = await self.memory.record_agent_memory_pending(
+                    project_id=t.project_id,
+                    task_id=t.task_id,
+                    role=str(res.role),
+                    type_=type_,
+                    payload=payload,
+                )
+                await self.bus.emit(
+                    t.project_id,
+                    t.task_id,
+                    "agent_memory_pending",
+                    {"agent_memory": {"agent_memory_id": str(agent_memory_id), "type": type_, "role": str(res.role)}},
+                )
+            except Exception:
+                pass
+
         await self.memory.write_memory_event(
             project_id=t.project_id,
             task_id=t.task_id,
             type_="decision",
             actor=f"agent:{res.role}",
-            payload={"ok": res.ok, "summary": res.summary, "artifacts": res.artifacts},
+            payload={
+                "ok": res.ok,
+                "summary": res.summary,
+                "artifacts": res.artifacts,
+                "memory_entries": res.memory_entries,
+            },
         )
 
     async def _write_gate(self, decision: GateDecision) -> None:
@@ -293,15 +325,40 @@ class Orchestrator:
         )
         await self._write_gate(d)
 
+    async def _run_with_retries(
+        self,
+        *,
+        project_id: UUID,
+        task_id: UUID,
+        role: AgentRole,
+        expected_spec_hash: str | None = None,
+    ) -> AgentResult:
+        max_retries = int(os.getenv("ODP_AGENT_MAX_RETRIES", "1"))
+        attempt = 0
+        backoffs = [0.2, 0.5, 1.0]
+        while True:
+            res = await run_agent(
+                cfg=self.agent_cfg,
+                project_id=project_id,
+                task_id=task_id,
+                role=role,
+                expected_spec_hash=expected_spec_hash,
+            )
+            retryable = ("parse failure" in res.summary.lower()) or ("timed out" in res.summary.lower())
+            if res.ok or (not retryable) or attempt >= max_retries:
+                return res
+            delay = backoffs[min(attempt, len(backoffs) - 1)]
+            await asyncio.sleep(delay)
+            attempt += 1
+
     async def _run_engineer(self, project_id: UUID, task_id: UUID) -> AgentResult:
-        return await run_agent(cfg=self.agent_cfg, project_id=project_id, task_id=task_id, role=AgentRole.engineer)
+        return await self._run_with_retries(project_id=project_id, task_id=task_id, role=AgentRole.engineer)
 
     async def _run_qa(self, project_id: UUID, task_id: UUID) -> AgentResult:
         # QA validates spec hash as part of its evidence.
         t = await self.get_task(project_id, task_id)
         expected = t.spec_hash if t else None
-        return await run_agent(
-            cfg=self.agent_cfg,
+        return await self._run_with_retries(
             project_id=project_id,
             task_id=task_id,
             role=AgentRole.qa,
@@ -309,7 +366,7 @@ class Orchestrator:
         )
 
     async def _run_security(self, project_id: UUID, task_id: UUID) -> AgentResult:
-        return await run_agent(cfg=self.agent_cfg, project_id=project_id, task_id=task_id, role=AgentRole.security)
+        return await self._run_with_retries(project_id=project_id, task_id=task_id, role=AgentRole.security)
 
     def _write_artifact_file(self, project_id: UUID, task_id: UUID, type_: str, text_: str) -> str:
         base = os.getenv("ODP_ARTIFACT_DIR", "runtime/artifacts")

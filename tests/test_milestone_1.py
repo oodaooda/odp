@@ -44,15 +44,21 @@ def app(containers, monkeypatch):
         idx = td / "INDEX.md"
         m1 = td / "MILESTONE_1.md"
         m2 = td / "MILESTONE_2.md"
+        m3 = td / "MILESTONE_3.md"
+        m4 = td / "MILESTONE_4.md"
         ui = td / "UI_SPEC.md"
         idx.write_text("index", encoding="utf-8")
         m1.write_text("m1", encoding="utf-8")
         m2.write_text("m2", encoding="utf-8")
+        m3.write_text("m3", encoding="utf-8")
+        m4.write_text("m4", encoding="utf-8")
         ui.write_text("ui", encoding="utf-8")
 
         monkeypatch.setenv("ODP_SPEC_INDEX", str(idx))
         monkeypatch.setenv("ODP_SPEC_M1", str(m1))
         monkeypatch.setenv("ODP_SPEC_M2", str(m2))
+        monkeypatch.setenv("ODP_SPEC_M3", str(m3))
+        monkeypatch.setenv("ODP_SPEC_M4", str(m4))
         monkeypatch.setenv("ODP_UI_SPEC", str(ui))
         monkeypatch.setenv("ODP_REDIS_URL", containers["redis_url"])
         monkeypatch.setenv("ODP_FAKE_REDIS", "1")

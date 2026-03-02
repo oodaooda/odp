@@ -6,9 +6,10 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect, Query
 from fastapi.responses import HTMLResponse
 from redis.asyncio import Redis
+from pydantic import BaseModel, Field
 
 # Optional: dockerless tests
 try:
@@ -22,6 +23,11 @@ from .models import ChatMessageRequest, Task, TaskCreateRequest
 from .agent_runner import AgentRunConfig
 from .orchestrator import Orchestrator
 from .redis_store import RedisStore
+
+
+class PromoteRequest(BaseModel):
+    decision: str = Field(pattern="^(approved|rejected)$")
+    note: str | None = Field(default=None, max_length=2000)
 
 
 def create_app() -> FastAPI:
@@ -145,8 +151,67 @@ function connect(project, task){
         await memory.write_chat_message(
             project_id=project_id, task_id=req.task_id, actor=req.actor, text_=req.text
         )
-        # For M1, chat doesn't trigger agent work. It is persisted only.
+        # For now, chat doesn't trigger agent work. It is persisted only.
         return {"ok": True}
+
+    @app.get("/projects/{project_id}/chat")
+    async def list_chat(
+        project_id: UUID,
+        task_id: UUID | None = None,
+        limit: int = Query(default=200, ge=1, le=1000),
+    ) -> dict[str, Any]:
+        msgs = await memory.list_chat_messages(project_id=project_id, task_id=task_id, limit=limit)
+        return {"messages": msgs}
+
+    @app.get("/projects/{project_id}/agent-memory")
+    async def list_agent_memory(
+        project_id: UUID,
+        status: str | None = Query(default=None),
+        task_id: UUID | None = None,
+        limit: int = Query(default=100, ge=1, le=1000),
+    ) -> dict[str, Any]:
+        rows = await memory.list_agent_memory(project_id=project_id, status=status, task_id=task_id, limit=limit)
+        return {"agent_memory": rows}
+
+    @app.post("/projects/{project_id}/agent-memory/{agent_memory_id}/promote")
+    async def promote_agent_memory(
+        project_id: UUID, agent_memory_id: UUID, req: PromoteRequest
+    ) -> dict[str, Any]:
+        meta = await memory.get_agent_memory_meta(project_id=project_id, agent_memory_id=agent_memory_id)
+        if not meta:
+            raise HTTPException(status_code=404, detail="agent memory not found")
+
+        promotion_id = await memory.promote_agent_memory(
+            project_id=project_id,
+            agent_memory_id=agent_memory_id,
+            decision=req.decision,
+            reviewer="orchestrator",
+            note=req.note,
+        )
+
+        task_id = UUID(meta["task_id"])
+        # Record an auditable memory event on approval/rejection.
+        await memory.write_memory_event(
+            project_id=project_id,
+            task_id=task_id,
+            type_="decision",
+            actor="orchestrator",
+            payload={
+                "promotion_id": str(promotion_id),
+                "agent_memory_id": str(agent_memory_id),
+                "decision": req.decision,
+                "note": req.note,
+                "type": meta.get("type"),
+                "role": meta.get("role"),
+            },
+        )
+        await bus.emit(
+            project_id,
+            task_id,
+            "agent_memory_promoted",
+            {"agent_memory_id": str(agent_memory_id), "decision": req.decision},
+        )
+        return {"ok": True, "promotion_id": str(promotion_id)}
 
     @app.post("/projects/{project_id}/tasks/{task_id}/artifacts")
     async def upload_artifact(project_id: UUID, task_id: UUID, file: UploadFile = File(...)) -> dict[str, Any]:
