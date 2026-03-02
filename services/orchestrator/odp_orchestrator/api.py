@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -37,7 +38,36 @@ class CompactChatRequest(BaseModel):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="ODP Orchestrator", version="0.1")
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        memory: MemoryWriter = app.state.memory
+        orch: Orchestrator = app.state.orch
+        if os.getenv("ODP_AUTO_MIGRATE", "1") == "1":
+            await memory.init_schema()
+        try:
+            yield
+        finally:
+            # Ensure background tasks are cancelled/awaited before the event loop closes.
+            for t in list(orch.background_tasks):
+                t.cancel()
+            if orch.background_tasks:
+                await asyncio.gather(*list(orch.background_tasks), return_exceptions=True)
+
+            # Close DB connections (aiosqlite will otherwise emit ResourceWarnings on gc).
+            try:
+                await memory.engine.dispose()
+            except Exception:
+                pass
+
+            # Close redis connection if supported.
+            try:
+                r = app.state.redis
+                if hasattr(r, "aclose"):
+                    await r.aclose()  # type: ignore[attr-defined]
+            except Exception:
+                pass
+
+    app = FastAPI(title="ODP Orchestrator", version="0.1", lifespan=lifespan)
 
     redis_url = os.getenv("ODP_REDIS_URL", "redis://localhost:6379/0")
 
@@ -63,19 +93,12 @@ def create_app() -> FastAPI:
     )
     orch = Orchestrator(store=store, bus=bus, memory=memory, agent_cfg=agent_cfg)
 
-    @app.on_event("startup")
-    async def _startup() -> None:
-        if os.getenv("ODP_AUTO_MIGRATE", "1") == "1":
-            await memory.init_schema()
+    # Expose for lifespan + tests/debug.
+    app.state.memory = memory
+    app.state.orch = orch
+    app.state.bus = bus
+    app.state.store = store
 
-    @app.on_event("shutdown")
-    async def _shutdown() -> None:
-        # Ensure background tasks (which may own subprocess transports) are cancelled/awaited
-        # before the event loop closes. This keeps pytest clean.
-        for t in list(orch.background_tasks):
-            t.cancel()
-        if orch.background_tasks:
-            await asyncio.gather(*list(orch.background_tasks), return_exceptions=True)
 
     @app.get("/", response_class=HTMLResponse)
     async def dashboard() -> str:
@@ -302,7 +325,7 @@ function connect(project, task){
         finally:
             try:
                 await pubsub.unsubscribe(bus.channel(project_id, task_id))
-                await pubsub.close()
+                await pubsub.aclose()
             except Exception:
                 pass
 

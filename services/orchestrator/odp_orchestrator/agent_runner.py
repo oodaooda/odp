@@ -113,23 +113,37 @@ async def run_agent(
         str(art_dir),
     ]
 
-    p = await asyncio.create_subprocess_exec(
-        *cmd,
-        cwd=str(cfg.repo_root),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-        env=env,
-    )
+    # In unit-test mode, run agents in-process to keep pytest clean/stable (no asyncio subprocess
+    # transports lingering during event-loop teardown).
+    if os.getenv("ODP_AGENT_TEST_MODE", "0") == "1":
+        import contextlib
+        import io
 
-    timed_out = False
-    try:
-        stdout_b, _ = await asyncio.wait_for(p.communicate(), timeout=cfg.timeout_s)
-    except TimeoutError:
-        timed_out = True
-        p.kill()
-        stdout_b = b""
+        from services.agents.odp_agent.main import main as agent_main
 
-    stdout = stdout_b.decode("utf-8", errors="replace") if isinstance(stdout_b, (bytes, bytearray)) else ""
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = agent_main(["--role", str(role), "--workspace", str(workspace), "--artifacts", str(art_dir)])
+        stdout = buf.getvalue()
+        timed_out = False
+    else:
+        p = await asyncio.create_subprocess_exec(
+            *cmd,
+            cwd=str(cfg.repo_root),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            env=env,
+        )
+
+        timed_out = False
+        try:
+            stdout_b, _ = await asyncio.wait_for(p.communicate(), timeout=cfg.timeout_s)
+        except TimeoutError:
+            timed_out = True
+            p.kill()
+            stdout_b = b""
+
+        stdout = stdout_b.decode("utf-8", errors="replace") if isinstance(stdout_b, (bytes, bytearray)) else ""
 
     # Always capture combined stdout as evidence.
     stdout_uri = _write_text(art_dir / "agent_stdout.txt", stdout)

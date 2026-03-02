@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.pool import StaticPool
 
 
 def db_url_from_env() -> str:
@@ -19,7 +20,15 @@ def db_url_from_env() -> str:
 
 
 def create_engine() -> AsyncEngine:
-    return create_async_engine(db_url_from_env(), pool_pre_ping=True)
+    url = db_url_from_env()
+    # For sqlite (esp. :memory: in tests), use a single shared connection.
+    if url.startswith("sqlite"):
+        return create_async_engine(
+            url,
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+    return create_async_engine(url, pool_pre_ping=True)
 
 
 SCHEMA_SQL_PG = """
