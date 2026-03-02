@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -178,6 +179,7 @@ create index if not exists chat_messages_task_id_idx on chat_messages(task_id);
 @dataclass
 class MemoryWriter:
     engine: AsyncEngine
+    _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     def _fake_embedding(self, text_: str) -> list[float]:
         """Deterministic tiny embedding for dev/test.
@@ -235,7 +237,7 @@ class MemoryWriter:
                 values (:project_id,:event_id,:task_id,:type,:actor,:payload::jsonb,:compaction_of)
             """
 
-        async with self.engine.begin() as conn:
+        async with self._lock, self.engine.begin() as conn:
             await conn.execute(
                 text(stmt),
                 {

@@ -74,7 +74,7 @@ def test_m4_chat_compaction_writes_summary_memory_event(app):
 
         ev = client.get(
             f"/projects/{project_id}/memory-events",
-            params={"task_id": str(task_id), "limit": 50},
+            params={"task_id": str(task_id), "limit": 1000},
         )
         assert ev.status_code == 200
         events = ev.json()["events"]
