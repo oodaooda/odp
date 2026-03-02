@@ -51,7 +51,7 @@ create index if not exists memory_events_project_id_idx on memory_events(project
 
 create table if not exists vector_index (
   event_id uuid primary key,
-  embedding vector(3) not null,
+  embedding vector not null,
   created_at timestamptz not null default now()
 );
 
@@ -181,17 +181,6 @@ class MemoryWriter:
     engine: AsyncEngine
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
-    def _fake_embedding(self, text_: str) -> list[float]:
-        """Deterministic tiny embedding for dev/test.
-
-        Real embeddings are out-of-scope for early milestones; this keeps the vector_index pipeline
-        wired without external model calls.
-        """
-        import hashlib
-
-        h = hashlib.sha256(text_.encode("utf-8", errors="ignore")).digest()
-        # 3 floats in [0,1)
-        return [h[0] / 255.0, h[1] / 255.0, h[2] / 255.0]
 
     async def init_schema(self) -> None:
         schema = SCHEMA_SQLITE if self.engine.dialect.name == "sqlite" else SCHEMA_SQL_PG
@@ -251,34 +240,37 @@ class MemoryWriter:
                 },
             )
 
-            # Derived vector index (best-effort). In environments without pgvector/table support,
-            # this is skipped.
-            try:
-                emb = self._fake_embedding(payload_json)
-                if self.engine.dialect.name == "sqlite":
-                    await conn.execute(
-                        text(
-                            """
-                            insert into vector_index(event_id,embedding)
-                            values (:event_id,:embedding)
-                            on conflict(event_id) do update set embedding=excluded.embedding
-                            """
-                        ),
-                        {"event_id": str(event_id), "embedding": json.dumps(emb)},
-                    )
-                else:
-                    await conn.execute(
-                        text(
-                            """
-                            insert into vector_index(event_id,embedding)
-                            values (:event_id, CAST(:embedding as vector))
-                            on conflict(event_id) do update set embedding=excluded.embedding
-                            """
-                        ),
-                        {"event_id": str(event_id), "embedding": str(emb)},
-                    )
-            except Exception:
-                pass
+            # Derived vector index (best-effort). Only runs when embeddings are enabled.
+            if type_ in {"summary", "decision"}:
+                try:
+                    from .embeddings import EmbeddingsClient, EmbeddingsConfig
+
+                    emb = await EmbeddingsClient(EmbeddingsConfig.from_env()).embed(payload_json)
+                    if emb is not None:
+                        if self.engine.dialect.name == "sqlite":
+                            await conn.execute(
+                                text(
+                                    """
+                                    insert into vector_index(event_id,embedding)
+                                    values (:event_id,:embedding)
+                                    on conflict(event_id) do update set embedding=excluded.embedding
+                                    """
+                                ),
+                                {"event_id": str(event_id), "embedding": json.dumps(emb)},
+                            )
+                        else:
+                            await conn.execute(
+                                text(
+                                    """
+                                    insert into vector_index(event_id,embedding)
+                                    values (:event_id, CAST(:embedding as vector))
+                                    on conflict(event_id) do update set embedding=excluded.embedding
+                                    """
+                                ),
+                                {"event_id": str(event_id), "embedding": str(emb)},
+                            )
+                except Exception:
+                    pass
 
         return event_id
 

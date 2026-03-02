@@ -39,40 +39,36 @@ async def _run_local_cmd(*cmd: str, cwd: Path, timeout_s: int) -> tuple[int, str
     return int(p.returncode or 0), out
 
 
-async def _ensure_workspace_repo(*, repo_root: Path, workspace_root: Path) -> Path:
+async def _ensure_workspace_repo(
+    *, repo_root: Path, workspace_root: Path, branch: str | None
+) -> tuple[Path, str | None]:
     """Create an isolated workspace repo.
 
-    In real mode we use a git worktree so agents can run git diff and tests without touching
-    the orchestrator's working tree.
-
-    In ODP_AGENT_TEST_MODE we skip the checkout to keep unit tests fast/deterministic.
+    - Real mode: git worktree checkout under workspace_root/repo.
+    - If `branch` is provided, creates a branch-per-task worktree.
+    - Test mode: no checkout (workspace_root used directly).
     """
     workspace_root.mkdir(parents=True, exist_ok=True)
 
     if os.getenv("ODP_AGENT_TEST_MODE", "0") == "1":
-        return workspace_root
+        return workspace_root, None
 
     ws_repo = workspace_root / "repo"
-    # If already initialized, reuse.
     if (ws_repo / ".git").exists():
-        return ws_repo
+        return ws_repo, branch
 
-    ws_repo.parent.mkdir(parents=True, exist_ok=True)
-    rc, out = await _run_local_cmd(
-        "git",
-        "worktree",
-        "add",
-        "--detach",
-        str(ws_repo),
-        "HEAD",
-        cwd=repo_root,
-        timeout_s=60,
-    )
+    cmd = ["git", "worktree", "add"]
+    if branch:
+        cmd += ["-b", branch]
+    else:
+        cmd += ["--detach"]
+    cmd += [str(ws_repo), "HEAD"]
+
+    rc, _out = await _run_local_cmd(*cmd, cwd=repo_root, timeout_s=60)
     if rc != 0:
-        # Fall back to repo_root (still runs, but loses isolation). This should be rare and is
-        # preferable to hard-failing the orchestrator in dev.
-        return repo_root
-    return ws_repo
+        return repo_root, None
+
+    return ws_repo, branch
 
 
 def _write_text(path: Path, text_: str) -> str:
@@ -91,7 +87,10 @@ async def run_agent(
 ) -> AgentResult:
     # Per-task, per-role isolated workspace.
     ws_root = cfg.workspaces_root / str(project_id) / str(task_id) / str(role)
-    workspace = await _ensure_workspace_repo(repo_root=cfg.repo_root, workspace_root=ws_root)
+    branch = None
+    if os.getenv("ODP_AGENT_TEST_MODE", "0") != "1" and role == AgentRole.engineer:
+        branch = f"odp/task-{str(task_id)[:8]}"
+    workspace, work_branch = await _ensure_workspace_repo(repo_root=cfg.repo_root, workspace_root=ws_root, branch=branch)
 
     art_dir = cfg.artifacts_root / str(project_id) / str(task_id) / "agents" / str(role)
     art_dir.mkdir(parents=True, exist_ok=True)
@@ -145,10 +144,24 @@ async def run_agent(
 
         stdout = stdout_b.decode("utf-8", errors="replace") if isinstance(stdout_b, (bytes, bytearray)) else ""
 
+    async def _cleanup_git() -> None:
+        if os.getenv("ODP_AGENT_TEST_MODE", "0") == "1":
+            return
+        if os.getenv("ODP_GIT_CLEANUP", "1") != "1":
+            return
+        # Only cleanup if we created an isolated worktree under this role workspace.
+        expected_repo = ws_root / "repo"
+        if workspace != expected_repo:
+            return
+        await _run_local_cmd("git", "worktree", "remove", "--force", str(expected_repo), cwd=cfg.repo_root, timeout_s=60)
+        if work_branch:
+            await _run_local_cmd("git", "branch", "-D", str(work_branch), cwd=cfg.repo_root, timeout_s=60)
+
     # Always capture combined stdout as evidence.
     stdout_uri = _write_text(art_dir / "agent_stdout.txt", stdout)
 
     if timed_out:
+        await _cleanup_git()
         return AgentResult(
             project_id=project_id,
             task_id=task_id,
@@ -177,6 +190,7 @@ async def run_agent(
     artifacts = list(payload.get("artifacts") or [])
     artifacts.append({"type": "log", "uri": stdout_uri})
 
+    await _cleanup_git()
     return AgentResult(
         project_id=project_id,
         task_id=task_id,

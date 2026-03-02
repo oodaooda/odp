@@ -41,6 +41,10 @@ def app(monkeypatch):
         monkeypatch.setenv("ODP_DATABASE_URL", "sqlite+aiosqlite:///:memory:")
         monkeypatch.setenv("ODP_AUTO_MIGRATE", "1")
 
+        # Enable embeddings provider but do NOT provide API key; should be a no-op.
+        monkeypatch.setenv("ODP_EMBEDDINGS_PROVIDER", "openai")
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
         monkeypatch.setenv("ODP_AGENT_TEST_MODE", "1")
         monkeypatch.setenv("ODP_ARTIFACT_DIR", str(td / "artifacts"))
         monkeypatch.setenv("ODP_WORKSPACE_DIR", str(td / "workspaces"))
@@ -48,46 +52,35 @@ def app(monkeypatch):
 
         from services.orchestrator.odp_orchestrator.api import create_app
 
-        yield create_app()
+        yield create_app(), td
 
 
-def test_m4_chat_compaction_writes_summary_memory_event(app):
+def test_m5_ui_pages_and_embeddings_graceful(app):
+    app_, _td = app
     project_id = uuid4()
 
-    with TestClient(app) as client:
-        r = client.post(f"/projects/{project_id}/tasks", json={"title": "m4"})
+    with TestClient(app_) as client:
+        # Basic UI endpoints
+        r0 = client.get("/")
+        assert r0.status_code == 200
+
+        # Project UI should load even with no tasks
+        r1 = client.get(f"/ui/projects/{project_id}")
+        assert r1.status_code == 200
+
+        # Create a task
+        r = client.post(f"/projects/{project_id}/tasks", json={"title": "m5"})
         assert r.status_code == 200
         task_id = UUID(r.json()["task_id"])
 
-        # Write some chat messages.
-        for i in range(6):
-            c = client.post(
-                f"/projects/{project_id}/chat",
-                json={"text": f"msg-{i}", "task_id": str(task_id)},
-            )
-            assert c.status_code == 200
+        r2 = client.get(f"/ui/projects/{project_id}/tasks/{task_id}")
+        assert r2.status_code == 200
 
+        # Trigger a summary memory event (compaction) which would attempt embeddings.
+        for i in range(3):
+            client.post(f"/projects/{project_id}/chat", json={"text": f"msg-{i}", "task_id": str(task_id)})
         cc = client.post(
             f"/projects/{project_id}/chat/compact",
-            json={"task_id": str(task_id), "keep_last": 2, "compact_n": 10},
+            json={"task_id": str(task_id), "keep_last": 1, "compact_n": 10},
         )
         assert cc.status_code == 200
-        assert cc.json()["compacted"] >= 1
-
-        # Compaction is additive; allow a short eventual-consistency window while background task
-        # transitions complete.
-        import time
-
-        t0 = time.time()
-        while True:
-            ev = client.get(
-                f"/projects/{project_id}/memory-events",
-                params={"task_id": str(task_id), "limit": 1000},
-            )
-            assert ev.status_code == 200
-            events = ev.json()["events"]
-            if any(e["type"] == "summary" for e in events):
-                break
-            if time.time() - t0 > 2.0:
-                assert False, f"summary not found in memory-events: {events}"
-            time.sleep(0.05)

@@ -28,7 +28,7 @@ CREATE INDEX IF NOT EXISTS memory_events_project_id_idx ON memory_events(project
 -- Derived vector index (optional; requires pgvector)
 CREATE TABLE IF NOT EXISTS vector_index (
   event_id uuid PRIMARY KEY,
-  embedding vector(3) NOT NULL,
+  embedding vector NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 

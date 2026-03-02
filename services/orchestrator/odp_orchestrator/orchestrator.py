@@ -31,6 +31,7 @@ def compute_spec_hash() -> str:
         os.getenv("ODP_SPEC_M2", "docs/MILESTONE_2.md"),
         os.getenv("ODP_SPEC_M3", "docs/MILESTONE_3.md"),
         os.getenv("ODP_SPEC_M4", "docs/MILESTONE_4.md"),
+        os.getenv("ODP_SPEC_M5", "docs/MILESTONE_5.md"),
         os.getenv("ODP_UI_SPEC", "docs/UI_SPEC.md"),
     ]
     h = hashlib.sha256()

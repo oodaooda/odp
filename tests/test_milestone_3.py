@@ -33,6 +33,7 @@ def app(monkeypatch):
         (td / "MILESTONE_2.md").write_text("m2", encoding="utf-8")
         (td / "MILESTONE_3.md").write_text("m3", encoding="utf-8")
         (td / "MILESTONE_4.md").write_text("m4", encoding="utf-8")
+        (td / "MILESTONE_5.md").write_text("m5", encoding="utf-8")
         (td / "UI_SPEC.md").write_text("ui", encoding="utf-8")
 
         monkeypatch.setenv("ODP_SPEC_INDEX", str(td / "INDEX.md"))
@@ -40,6 +41,7 @@ def app(monkeypatch):
         monkeypatch.setenv("ODP_SPEC_M2", str(td / "MILESTONE_2.md"))
         monkeypatch.setenv("ODP_SPEC_M3", str(td / "MILESTONE_3.md"))
         monkeypatch.setenv("ODP_SPEC_M4", str(td / "MILESTONE_4.md"))
+        monkeypatch.setenv("ODP_SPEC_M5", str(td / "MILESTONE_5.md"))
         monkeypatch.setenv("ODP_UI_SPEC", str(td / "UI_SPEC.md"))
 
         monkeypatch.setenv("ODP_FAKE_REDIS", "1")

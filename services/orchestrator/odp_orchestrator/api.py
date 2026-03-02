@@ -102,14 +102,13 @@ def create_app() -> FastAPI:
 
     @app.get("/", response_class=HTMLResponse)
     async def dashboard() -> str:
-        # Minimal dashboard shell; UI spec is prototype-driven, so we keep this lean.
         return """
 <!doctype html>
 <html>
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>ODP Dashboard (M1)</title>
+  <title>ODP Dashboard</title>
   <style>
     :root { color-scheme: dark; }
     body { font-family: ui-sans-serif, system-ui; background: #0b0f14; color: #e6edf3; margin: 24px; }
@@ -155,6 +154,58 @@ function connect(project, task){
   el.innerText = '';
   ws.onmessage = (m)=>{ el.innerText += m.data + "\n"; };
 }
+</script>
+</body>
+</html>
+"""
+
+    @app.get("/ui/projects/{project_id}", response_class=HTMLResponse)
+    async def ui_project(project_id: UUID) -> str:
+        return f"""
+<!doctype html>
+<html>
+<head><meta charset='utf-8'/><meta name='viewport' content='width=device-width, initial-scale=1'/>
+<title>ODP Project {project_id}</title>
+<style>body{{font-family:system-ui;background:#0b0f14;color:#e6edf3;margin:24px}} a{{color:#9cdcfe}}</style>
+</head>
+<body>
+<h1>Project {project_id}</h1>
+<p><a href='/'>Home</a></p>
+<div id='tasks'></div>
+<script>
+(async ()=>{{
+  const r = await fetch(`/projects/{project_id}/tasks`);
+  const tasks = await r.json();
+  const el = document.getElementById('tasks');
+  el.innerHTML = `<h3>Tasks</h3>` + tasks.map(t=>`<div><a href='/ui/projects/{project_id}/tasks/${{t.task_id}}'>${{t.title}}</a> — <code>${{t.state}}</code></div>`).join('');
+}})();
+</script>
+</body>
+</html>
+"""
+
+    @app.get("/ui/projects/{project_id}/tasks/{task_id}", response_class=HTMLResponse)
+    async def ui_task(project_id: UUID, task_id: UUID) -> str:
+        return f"""
+<!doctype html>
+<html>
+<head><meta charset='utf-8'/><meta name='viewport' content='width=device-width, initial-scale=1'/>
+<title>ODP Task {task_id}</title>
+<style>body{{font-family:system-ui;background:#0b0f14;color:#e6edf3;margin:24px}} a{{color:#9cdcfe}} pre{{white-space:pre-wrap}}</style>
+</head>
+<body>
+<h1>Task {task_id}</h1>
+<p><a href='/ui/projects/{project_id}'>Back to project</a></p>
+<div id='task'></div>
+<h3>Events</h3>
+<pre id='events'></pre>
+<script>
+(async ()=>{{
+  const t = await (await fetch(`/projects/{project_id}/tasks/{task_id}`)).json();
+  document.getElementById('task').innerHTML = `<div><b>${{t.title}}</b> — <code>${{t.state}}</code></div>`;
+  const ev = await (await fetch(`/projects/{project_id}/memory-events?task_id={task_id}&limit=200`)).json();
+  document.getElementById('events').innerText = JSON.stringify(ev.events, null, 2);
+}})();
 </script>
 </body>
 </html>
