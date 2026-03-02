@@ -43,3 +43,9 @@ No commit or merge is allowed unless all gates pass and evidence is recorded.
 - Scope of Work template: `docs/templates/SCOPE_OF_WORK.md`
 - Roadmap template: `docs/templates/ROADMAP.md`
 - Verification log template: `docs/templates/VERIFICATION_LOG.md`
+
+## 7. OpenClaw TUI + Logs (Quick Reference)
+- TUI status line shows connection/run state (connecting, running, streaming, idle, error). citeturn1search0
+- If TUI shows no output: run `/status`, check `openclaw logs --follow`, and confirm agent/model status. citeturn1search0turn1search6turn0search0
+- TUI delivery is off by default; enable with `/deliver on` or `openclaw tui --deliver`. citeturn1search0
+- Log file location defaults to `/tmp/openclaw/openclaw-YYYY-MM-DD.log`; CLI tail is `openclaw logs --follow`. citeturn0search0turn0search4
