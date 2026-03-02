@@ -80,6 +80,7 @@ def test_m2_agent_artifacts_and_gates(app):
         assert "phase_2_engineer" in gates
         assert "phase_3_qa" in gates
         assert "phase_4_security" in gates
+        assert "phase_5_ws" in gates
 
         # Workspace isolation paths exist.
         ws = td / "workspaces" / str(project_id) / str(task_id)
@@ -94,3 +95,4 @@ def test_m2_agent_artifacts_and_gates(app):
         assert (base / "qa" / "qa_pytest.txt").exists()
         assert (base / "qa" / "qa_spec_hash.txt").exists()
         assert (base / "security" / "security_scan.txt").exists()
+        assert (base / "security" / "dependency_sanity.txt").exists()

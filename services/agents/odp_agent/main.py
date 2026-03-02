@@ -120,13 +120,65 @@ def _qa(workspace: Path, artifacts_dir: Path) -> AgentOutput:
 _SECRET_MARKERS = ["wt_", "sk-", "-----BEGIN PRIVATE KEY-----", "AWS_SECRET_ACCESS_KEY"]
 
 
+def _dependency_sanity(workspace: Path) -> tuple[bool, str]:
+    """Very lightweight local-only dependency sanity scan.
+
+    Fails on clearly untrusted sources (VCS/URL/path). Warns on unpinned specs.
+    """
+
+    pyproject = workspace / "pyproject.toml"
+    if not pyproject.exists():
+        return True, "dependency_sanity: pyproject.toml missing; skipped\n"
+
+    try:
+        import tomllib  # py3.11+
+
+        data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+    except Exception as e:
+        return False, f"dependency_sanity: failed to parse pyproject.toml: {e}\n"
+
+    deps = (data.get("project") or {}).get("dependencies") or []
+    if not isinstance(deps, list):
+        return False, "dependency_sanity: project.dependencies is not a list\n"
+
+    bad: list[str] = []
+    warn: list[str] = []
+    for d in deps:
+        if not isinstance(d, str):
+            continue
+        ds = d.strip()
+        # Disallow VCS/URL/path installs in this minimal local workflow.
+        if "git+" in ds or "://" in ds or " @ " in ds or ds.startswith("-e "):
+            bad.append(ds)
+            continue
+        # Very rough check for version pin/constraint.
+        if not any(op in ds for op in ["==", ">=", "<=", "~=", "!=", ">", "<"]):
+            warn.append(ds)
+
+    ok = len(bad) == 0
+    lines: list[str] = ["dependency_sanity:\n"]
+    if bad:
+        lines.append("FAIL: untrusted dependency sources detected:\n")
+        lines.extend([f"- {x}\n" for x in bad])
+    if warn:
+        lines.append("WARN: dependencies without explicit version constraints:\n")
+        lines.extend([f"- {x}\n" for x in warn])
+    if not bad and not warn:
+        lines.append("ok: all dependencies have version constraints\n")
+    return ok, "".join(lines)
+
+
 def _security(workspace: Path, artifacts_dir: Path) -> AgentOutput:
     if os.getenv("ODP_AGENT_TEST_MODE", "0") == "1":
         sec_uri = _write(artifacts_dir / "security_scan.txt", "ok (test mode)\n")
+        dep_uri = _write(artifacts_dir / "dependency_sanity.txt", "ok (test mode)\n")
         return AgentOutput(
             ok=True,
             summary="security test-mode: ok",
-            artifacts=[{"type": "report", "uri": sec_uri}],
+            artifacts=[
+                {"type": "report", "uri": sec_uri},
+                {"type": "report", "uri": dep_uri},
+            ],
             logs=["security:test-mode"],
         )
 
@@ -146,14 +198,26 @@ def _security(workspace: Path, artifacts_dir: Path) -> AgentOutput:
             if m in txt:
                 hits.append(f"{p}: marker {m}")
 
-    out = "\n".join(hits) if hits else "no obvious secret markers found"
-    sec_uri = _write(artifacts_dir / "security_scan.txt", out + "\n")
-    ok = len(hits) == 0
+    secret_out = "\n".join(hits) if hits else "no obvious secret markers found"
+    sec_uri = _write(artifacts_dir / "security_scan.txt", secret_out + "\n")
+    secrets_ok = len(hits) == 0
+
+    deps_ok, dep_report = _dependency_sanity(workspace)
+    dep_uri = _write(artifacts_dir / "dependency_sanity.txt", dep_report)
+
+    ok = secrets_ok and deps_ok
+    summary_bits = []
+    summary_bits.append("secrets ok" if secrets_ok else f"secrets: {len(hits)} hits")
+    summary_bits.append("deps ok" if deps_ok else "deps: FAIL")
+
     return AgentOutput(
         ok=ok,
-        summary="security: " + ("ok" if ok else f"found {len(hits)} hits"),
-        artifacts=[{"type": "report", "uri": sec_uri}],
-        logs=[f"hits={len(hits)}"],
+        summary="security: " + "; ".join(summary_bits),
+        artifacts=[
+            {"type": "report", "uri": sec_uri},
+            {"type": "report", "uri": dep_uri},
+        ],
+        logs=[f"secret_hits={len(hits)}", f"deps_ok={deps_ok}"],
     )
 
 
