@@ -17,6 +17,7 @@
 
 ## Process
 - `PROCESS.md`
+- `ROADMAP.md`
 - `MILESTONE_1.md`
 - `MILESTONE_2.md`
 - `MILESTONE_3.md`
