@@ -161,55 +161,81 @@ function connect(project, task){
 
     @app.get("/ui/projects/{project_id}", response_class=HTMLResponse)
     async def ui_project(project_id: UUID) -> str:
-        return f"""
+        pid = str(project_id)
+        html = """
 <!doctype html>
 <html>
 <head><meta charset='utf-8'/><meta name='viewport' content='width=device-width, initial-scale=1'/>
-<title>ODP Project {project_id}</title>
-<style>body{{font-family:system-ui;background:#0b0f14;color:#e6edf3;margin:24px}} a{{color:#9cdcfe}}</style>
+<title>ODP Project __PID__</title>
+<style>body{font-family:system-ui;background:#0b0f14;color:#e6edf3;margin:24px} a{color:#9cdcfe}</style>
 </head>
 <body>
-<h1>Project {project_id}</h1>
+<h1>Project __PID__</h1>
 <p><a href='/'>Home</a></p>
 <div id='tasks'></div>
 <script>
-(async ()=>{{
-  const r = await fetch(`/projects/{project_id}/tasks`);
+const PROJECT_ID = "__PID__";
+(async ()=>{
+  const r = await fetch(`/projects/${PROJECT_ID}/tasks`);
   const tasks = await r.json();
   const el = document.getElementById('tasks');
-  el.innerHTML = `<h3>Tasks</h3>` + tasks.map(t=>`<div><a href='/ui/projects/{project_id}/tasks/${{t.task_id}}'>${{t.title}}</a> — <code>${{t.state}}</code></div>`).join('');
-}})();
+  el.innerHTML = `<h3>Tasks</h3>` + tasks.map(t=>`<div><a href='/ui/projects/${PROJECT_ID}/tasks/${t.task_id}'>${t.title}</a> — <code>${t.state}</code></div>`).join('');
+})();
 </script>
 </body>
 </html>
 """
+        return html.replace("__PID__", pid)
 
     @app.get("/ui/projects/{project_id}/tasks/{task_id}", response_class=HTMLResponse)
     async def ui_task(project_id: UUID, task_id: UUID) -> str:
-        return f"""
+        pid = str(project_id)
+        tid = str(task_id)
+        html = """
 <!doctype html>
 <html>
 <head><meta charset='utf-8'/><meta name='viewport' content='width=device-width, initial-scale=1'/>
-<title>ODP Task {task_id}</title>
-<style>body{{font-family:system-ui;background:#0b0f14;color:#e6edf3;margin:24px}} a{{color:#9cdcfe}} pre{{white-space:pre-wrap}}</style>
+<title>ODP Task __TID__</title>
+<style>body{font-family:system-ui;background:#0b0f14;color:#e6edf3;margin:24px} a{color:#9cdcfe} pre{white-space:pre-wrap}</style>
 </head>
 <body>
-<h1>Task {task_id}</h1>
-<p><a href='/ui/projects/{project_id}'>Back to project</a></p>
+<h1>Task __TID__</h1>
+<p><a href='/ui/projects/__PID__'>Back to project</a></p>
 <div id='task'></div>
 <h3>Events</h3>
 <pre id='events'></pre>
 <script>
-(async ()=>{{
-  const t = await (await fetch(`/projects/{project_id}/tasks/{task_id}`)).json();
-  document.getElementById('task').innerHTML = `<div><b>${{t.title}}</b> — <code>${{t.state}}</code></div>`;
-  const ev = await (await fetch(`/projects/{project_id}/memory-events?task_id={task_id}&limit=200`)).json();
+const PROJECT_ID = "__PID__";
+const TASK_ID = "__TID__";
+(async ()=>{
+  const t = await (await fetch(`/projects/${PROJECT_ID}/tasks/${TASK_ID}`)).json();
+  document.getElementById('task').innerHTML = `<div><b>${t.title}</b> — <code>${t.state}</code></div>`;
+  const ev = await (await fetch(`/projects/${PROJECT_ID}/memory-events?task_id=${TASK_ID}&limit=200`)).json();
   document.getElementById('events').innerText = JSON.stringify(ev.events, null, 2);
-}})();
+
+  // Artifacts
+  const arts = await (await fetch(`/projects/${PROJECT_ID}/tasks/${TASK_ID}/artifacts?limit=200`)).json();
+  const artHtml = (arts.artifacts||[]).map(a=>`<div><code>${a.type}</code> <a href='file://${a.uri}'>${a.uri}</a></div>`).join('');
+  const artDiv = document.createElement('div');
+  artDiv.innerHTML = `<h3>Artifacts</h3>` + (artHtml || '<div>(none)</div>');
+  document.body.appendChild(artDiv);
+
+  // Pending agent memory + promotion
+  const am = await (await fetch(`/projects/${PROJECT_ID}/agent-memory?status=pending&task_id=${TASK_ID}&limit=200`)).json();
+  const memDiv = document.createElement('div');
+  memDiv.innerHTML = `<h3>Pending Agent Memory</h3>` + (am.agent_memory||[]).map(m=>{
+    return `<div style='margin-bottom:8px'><code>${m.role}:${m.type}</code> <pre>${JSON.stringify(m.payload,null,2)}</pre>
+      <button onclick="fetch('/projects/${PROJECT_ID}/agent-memory/${m.agent_memory_id}/promote',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({decision:'approved'})}).then(()=>location.reload())">Approve</button>
+      <button onclick="fetch('/projects/${PROJECT_ID}/agent-memory/${m.agent_memory_id}/promote',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({decision:'rejected'})}).then(()=>location.reload())">Reject</button>
+    </div>`
+  }).join('');
+  document.body.appendChild(memDiv);
+})();
 </script>
 </body>
 </html>
 """
+        return html.replace("__PID__", pid).replace("__TID__", tid)
 
     @app.post("/projects/{project_id}/tasks", response_model=Task)
     async def create_task(project_id: UUID, req: TaskCreateRequest) -> Task:
@@ -284,6 +310,24 @@ function connect(project, task){
         evs = await memory.list_memory_events(project_id=project_id, task_id=task_id, limit=limit)
         return {"events": evs}
 
+    @app.get("/projects/{project_id}/memory/search")
+    async def memory_search(
+        project_id: UUID,
+        q: str = Query(min_length=1, max_length=2000),
+        limit: int = Query(default=10, ge=1, le=50),
+    ) -> dict[str, Any]:
+        # pgvector-first is implemented best-effort; sqlite uses text fallback.
+        results = await memory.search_memory_events_text(project_id=project_id, query=q, limit=limit)
+        enriched: list[dict[str, Any]] = []
+        for r in results:
+            try:
+                tid = UUID(r["task_id"])
+                artifacts = await memory.list_artifacts(project_id=project_id, task_id=tid, limit=50)
+            except Exception:
+                artifacts = []
+            enriched.append({**r, "artifacts": artifacts})
+        return {"results": enriched}
+
     @app.get("/projects/{project_id}/agent-memory")
     async def list_agent_memory(
         project_id: UUID,
@@ -333,6 +377,11 @@ function connect(project, task){
             {"agent_memory_id": str(agent_memory_id), "decision": req.decision},
         )
         return {"ok": True, "promotion_id": str(promotion_id)}
+
+    @app.get("/projects/{project_id}/tasks/{task_id}/artifacts")
+    async def list_task_artifacts(project_id: UUID, task_id: UUID, limit: int = Query(default=200, ge=1, le=1000)) -> dict[str, Any]:
+        rows = await memory.list_artifacts(project_id=project_id, task_id=task_id, limit=limit)
+        return {"artifacts": rows}
 
     @app.post("/projects/{project_id}/tasks/{task_id}/artifacts")
     async def upload_artifact(project_id: UUID, task_id: UUID, file: UploadFile = File(...)) -> dict[str, Any]:

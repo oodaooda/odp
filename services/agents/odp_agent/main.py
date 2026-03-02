@@ -81,6 +81,7 @@ def _compute_spec_hash(workspace: Path) -> str:
         os.getenv("ODP_SPEC_M3", "docs/MILESTONE_3.md"),
         os.getenv("ODP_SPEC_M4", "docs/MILESTONE_4.md"),
         os.getenv("ODP_SPEC_M5", "docs/MILESTONE_5.md"),
+        os.getenv("ODP_SPEC_M6", "docs/MILESTONE_6.md"),
         os.getenv("ODP_UI_SPEC", "docs/UI_SPEC.md"),
     ]
     import hashlib

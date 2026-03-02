@@ -388,6 +388,72 @@ class MemoryWriter:
             )
         return artifact_id
 
+    async def list_artifacts(
+        self, *, project_id: UUID, task_id: UUID, limit: int = 200
+    ) -> list[dict[str, Any]]:
+        sql = """
+            select artifact_id,type,uri,created_at
+            from artifacts
+            where project_id=:project_id and task_id=:task_id
+            order by created_at desc
+            limit :limit
+        """
+        async with self.engine.begin() as conn:
+            rows = (
+                await conn.execute(
+                    text(sql),
+                    {"project_id": str(project_id), "task_id": str(task_id), "limit": int(limit)},
+                )
+            ).mappings().all()
+        return [
+            {
+                "artifact_id": str(r["artifact_id"]),
+                "type": str(r["type"]),
+                "uri": str(r["uri"]),
+                "created_at": str(r["created_at"]),
+            }
+            for r in rows
+        ]
+
+    async def search_memory_events_text(
+        self, *, project_id: UUID, query: str, limit: int = 10
+    ) -> list[dict[str, Any]]:
+        # Simple text fallback over payload.
+        like = f"%{query}%"
+        sql = """
+            select event_id,task_id,type,actor,payload,created_at
+            from memory_events
+            where project_id=:project_id and payload like :like
+            order by created_at desc
+            limit :limit
+        """
+        async with self.engine.begin() as conn:
+            rows = (
+                await conn.execute(
+                    text(sql),
+                    {"project_id": str(project_id), "like": like, "limit": int(limit)},
+                )
+            ).mappings().all()
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            payload_val = r["payload"]
+            if isinstance(payload_val, str):
+                try:
+                    payload_val = json.loads(payload_val)
+                except Exception:
+                    payload_val = {"raw": payload_val}
+            out.append(
+                {
+                    "event_id": str(r["event_id"]),
+                    "task_id": str(r["task_id"]),
+                    "type": str(r["type"]),
+                    "actor": str(r["actor"]),
+                    "payload": payload_val,
+                    "created_at": str(r["created_at"]),
+                }
+            )
+        return out
+
     async def record_agent_memory_pending(
         self,
         *,

@@ -13,6 +13,8 @@ This file is the high-level progress tracker (checkboxes). Keep it up to date as
 
 - [x] **M5** – Real embeddings (config-gated) + git workflow hardening + UI build-out
 
+- [x] **M6** – Retrieval (pgvector) + merge automation + UI for evidence/promotion
+
 - [ ] Replace fake embeddings with a real embedding pipeline (configurable; keep local/dev safe)
 - [ ] Git hardening: branch-per-task + worktree cleanup + stricter sandbox guarantees
 - [ ] UI upgrades (dashboard pages for evidence + pending memory + compaction)

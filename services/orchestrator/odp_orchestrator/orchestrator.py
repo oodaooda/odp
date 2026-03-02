@@ -32,6 +32,7 @@ def compute_spec_hash() -> str:
         os.getenv("ODP_SPEC_M3", "docs/MILESTONE_3.md"),
         os.getenv("ODP_SPEC_M4", "docs/MILESTONE_4.md"),
         os.getenv("ODP_SPEC_M5", "docs/MILESTONE_5.md"),
+        os.getenv("ODP_SPEC_M6", "docs/MILESTONE_6.md"),
         os.getenv("ODP_UI_SPEC", "docs/UI_SPEC.md"),
     ]
     h = hashlib.sha256()
@@ -161,7 +162,8 @@ class Orchestrator:
                     ok5 = await self._gate_ws(project_id, task_id)
 
                     if ok2 and ok3 and ok4 and ok5:
-                        await self._transition(t, TaskState.COMMIT)
+                        merge_ok = await self._maybe_merge(t)
+                        await self._transition(t, TaskState.COMMIT if merge_ok else TaskState.ROLLBACK)
                     else:
                         await self._transition(t, TaskState.ROLLBACK)
                     continue
@@ -170,6 +172,42 @@ class Orchestrator:
                 await self._transition(t, TaskState.ROLLBACK)
         finally:
             await self.store.redis.delete(lock_key)
+
+    async def _maybe_merge(self, t: Task) -> bool:
+        """Best-effort merge automation.
+
+        Enabled via ODP_ENABLE_MERGE=1. In test mode it is a no-op.
+        """
+        if os.getenv("ODP_ENABLE_MERGE", "0") != "1":
+            return True
+        if os.getenv("ODP_AGENT_TEST_MODE", "0") == "1":
+            return True
+
+        branch = f"odp/task-{str(t.task_id)[:8]}"
+        # Merge in repo_root working tree.
+        repo_root = self.agent_cfg.repo_root
+        art_dir = self.agent_cfg.artifacts_root / str(t.project_id) / str(t.task_id) / "merge"
+        art_dir.mkdir(parents=True, exist_ok=True)
+        log_path = art_dir / "merge.log"
+
+        import subprocess
+
+        def run(cmd: list[str]) -> tuple[int, str]:
+            p = subprocess.run(cmd, cwd=str(repo_root), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            return p.returncode, p.stdout
+
+        rc1, out1 = run(["git", "checkout", "main"])
+        rc2, out2 = run(["git", "merge", "--no-ff", branch, "-m", f"Merge task {t.task_id}"])
+        log_path.write_text(out1 + "\n" + out2, encoding="utf-8")
+        await self.memory.record_artifact(project_id=t.project_id, task_id=t.task_id, type_="log", uri=str(log_path))
+        await self.bus.emit(t.project_id, t.task_id, "merge_log", {"uri": str(log_path), "branch": branch})
+
+        if rc1 != 0 or rc2 != 0:
+            return False
+
+        # Cleanup branch (best-effort)
+        run(["git", "branch", "-D", branch])
+        return True
 
     async def _save_task(self, t: Task) -> None:
         await self.store.put_json(self.store.task_key(t.project_id, t.task_id), t.model_dump())
