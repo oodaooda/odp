@@ -30,7 +30,8 @@ No commit or merge is allowed unless all gates pass and evidence is recorded.
 - Memory events stored in Postgres (append-only)
 - Scope-of-work, roadmap, and verification logs attached per task
 - Commits and pushes only after tests pass; never push on failing tests
- - `.gitignore` must be maintained to prevent non-essential artifacts from being committed
+- `.gitignore` must be maintained to prevent non-essential artifacts from being committed
+- UI changes must conform to `docs/UI_SPEC.md` prototypes (design acceptance criterion)
 
 ## 5. Suggested first milestone
 - Minimal orchestrator service with task lifecycle

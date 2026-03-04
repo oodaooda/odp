@@ -14,6 +14,7 @@
 - Config & Secrets: `../11_CONFIG_SECRETS.md`
 - Handoff: `../12_HANDOFF.md`
 - UI Spec: `UI_SPEC.md`
+- How To Run: `HOW_TO_RUN.md`
 
 ## Process
 - `PROCESS.md`

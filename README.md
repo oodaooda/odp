@@ -16,6 +16,7 @@ ODP is a spec-driven, multi-agent development system designed to safely coordina
 - Config & Secrets: `11_CONFIG_SECRETS.md`
 - Handoff: `12_HANDOFF.md`
 - UI Spec: `docs/UI_SPEC.md`
+- How To Run: `docs/HOW_TO_RUN.md`
 
 ## Repo layout (initial)
 - `apps/`: UI + control surface

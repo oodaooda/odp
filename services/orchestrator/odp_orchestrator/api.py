@@ -205,48 +205,145 @@ def create_app() -> FastAPI:
   <title>ODP Dashboard</title>
   <style>
     :root { color-scheme: dark; }
-    body { font-family: ui-sans-serif, system-ui; background: #0b0f14; color: #e6edf3; margin: 24px; }
-    .row { display:flex; gap: 24px; align-items:flex-start; }
-    .card { background: #111826; border: 1px solid #243041; border-radius: 12px; padding: 16px; width: 520px; }
-    input, button { background:#0b0f14; color:#e6edf3; border:1px solid #243041; border-radius: 10px; padding: 10px 12px; }
-    button { cursor:pointer; }
-    code { color: #9cdcfe; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: ui-sans-serif, system-ui; background: #0b0f14; color: #e6edf3; }
+    .app { display: grid; grid-template-columns: 260px 1fr; min-height: 100vh; }
+    .sidebar { background: #0f141a; border-right: 1px solid #1f2a36; padding: 24px; }
+    .brand { font-size: 28px; font-weight: 700; letter-spacing: 0.5px; }
+    .brand-sub { color: #9aa4b2; font-size: 12px; margin-top: 4px; }
+    .nav { margin-top: 28px; display: grid; gap: 10px; }
+    .nav a { color: #9aa4b2; text-decoration: none; padding: 10px 12px; border-radius: 10px; }
+    .nav a.active { background: #151c24; color: #e6edf3; }
+    .content { padding: 24px 32px; }
+    .header { display: flex; align-items: center; justify-content: space-between; background: #111826; border: 1px solid #223044; border-radius: 14px; padding: 16px 20px; }
+    .header h1 { margin: 0; font-size: 18px; }
+    .header .meta { color: #9aa4b2; font-size: 12px; }
+    .btn { background: #3a79c5; border: none; color: #0b0f14; padding: 10px 14px; border-radius: 10px; cursor: pointer; }
+    .grid { display: grid; gap: 16px; margin-top: 16px; }
+    .kpis { grid-template-columns: repeat(4, minmax(140px, 1fr)); }
+    .panel { background: #111826; border: 1px solid #223044; border-radius: 14px; padding: 16px; }
+    .panel h3 { margin: 0 0 10px 0; font-size: 14px; }
+    .split { display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; }
+    .muted { color: #9aa4b2; }
+    input, textarea { width: 100%; background:#0b0f14; color:#e6edf3; border:1px solid #223044; border-radius: 10px; padding: 10px 12px; }
+    textarea { min-height: 90px; }
+    .row { display:flex; gap: 10px; }
+    .list { display: grid; gap: 8px; }
+    .badge { padding: 2px 8px; border-radius: 8px; background:#1b2430; color:#9aa4b2; font-size: 11px; }
     .log { white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular; font-size: 12px; }
   </style>
 </head>
 <body>
-  <h1>ODP Dashboard (Milestone 1)</h1>
-  <div class="row">
-    <div class="card">
-      <h3>Create task</h3>
-      <input id="project" placeholder="project UUID" style="width:100%"/>
-      <div style="height:8px"></div>
-      <input id="title" placeholder="task title" style="width:100%"/>
-      <div style="height:8px"></div>
-      <button onclick="createTask()">Start</button>
-      <p id="created"></p>
-    </div>
-    <div class="card">
-      <h3>Task events</h3>
-      <div id="events" class="log"></div>
-    </div>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">ODP</div>
+      <div class="brand-sub">Orchestrated Dev Platform</div>
+      <nav class="nav">
+        <a class="active" href="/">Dashboard</a>
+        <a href="#" onclick="scrollToPanel('tasks')">Tasks</a>
+        <a href="#" onclick="scrollToPanel('gates')">Gates</a>
+        <a href="#" onclick="scrollToPanel('agents')">Agents</a>
+        <a href="#" onclick="scrollToPanel('audit')">Audit Log</a>
+      </nav>
+    </aside>
+    <main class="content">
+      <div class="header">
+        <div>
+          <h1>Dashboard</h1>
+          <div class="meta">Project: <span id="projectLabel">not set</span></div>
+        </div>
+        <button class="btn" onclick="createTask()">Create Task</button>
+      </div>
+
+      <div class="grid kpis">
+        <div class="panel"><div class="muted">Active Tasks</div><div id="kpiTasks">0</div></div>
+        <div class="panel"><div class="muted">Gate Status</div><div id="kpiGates">n/a</div></div>
+        <div class="panel"><div class="muted">Agents Online</div><div>3</div></div>
+        <div class="panel"><div class="muted">Last Run</div><div id="kpiLast">—</div></div>
+      </div>
+
+      <div class="split">
+        <section class="panel" id="tasks">
+          <h3>Tasks</h3>
+          <div class="row">
+            <input id="project" placeholder="project UUID"/>
+            <input id="title" placeholder="task title"/>
+          </div>
+          <div class="list" id="taskList" style="margin-top:10px"></div>
+        </section>
+        <section class="panel">
+          <h3>Orchestrator Chat</h3>
+          <textarea id="chatText" placeholder="Type a message..."></textarea>
+          <div style="height:8px"></div>
+          <button class="btn" onclick="sendChat()">Send</button>
+          <div class="log" id="chatLog" style="margin-top:10px"></div>
+        </section>
+      </div>
+
+      <div class="split">
+        <section class="panel" id="gates">
+          <h3>Gate Timeline</h3>
+          <div class="list">
+            <div><span class="badge">P1</span> Orchestrator</div>
+            <div><span class="badge">P2</span> Engineer</div>
+            <div><span class="badge">P3</span> QA</div>
+            <div><span class="badge">P4</span> Security</div>
+            <div><span class="badge">P5</span> UI/WS</div>
+          </div>
+        </section>
+        <section class="panel" id="agents">
+          <h3>Agents</h3>
+          <div class="list">
+            <div>Engineer <span class="badge">active</span></div>
+            <div>QA <span class="badge">active</span></div>
+            <div>Security <span class="badge">idle</span></div>
+          </div>
+        </section>
+      </div>
+
+      <section class="panel" id="audit">
+        <h3>Task Events</h3>
+        <div id="events" class="log"></div>
+      </section>
+    </main>
   </div>
 <script>
 let ws;
+function scrollToPanel(id){ document.getElementById(id).scrollIntoView({behavior:'smooth'}); }
 async function createTask(){
   const project = document.getElementById('project').value;
   const title = document.getElementById('title').value;
+  if(!project || !title){ return; }
   const r = await fetch(`/projects/${project}/tasks`, {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({title})});
   const t = await r.json();
-  document.getElementById('created').innerText = `Created task ${t.task_id}`;
+  document.getElementById('projectLabel').innerText = project;
+  document.getElementById('kpiLast').innerText = new Date().toLocaleTimeString();
   connect(project, t.task_id);
+  await loadTasks(project);
 }
 function connect(project, task){
   if(ws){ ws.close(); }
   ws = new WebSocket(`${location.origin.replace('http','ws')}/ws/projects/${project}/tasks/${task}`);
   const el = document.getElementById('events');
   el.innerText = '';
-  ws.onmessage = (m)=>{ el.innerText += m.data + "\n"; };
+  ws.onmessage = (m)=>{ el.innerText += m.data + "
+"; };
+}
+async function loadTasks(project){
+  const r = await fetch(`/projects/${project}/tasks`);
+  const tasks = await r.json();
+  document.getElementById('kpiTasks').innerText = tasks.length;
+  const el = document.getElementById('taskList');
+  el.innerHTML = tasks.map(t=>`<div><a href='/ui/projects/${project}/tasks/${t.task_id}'>${t.title}</a> — <code>${t.state}</code></div>`).join('');
+}
+async function sendChat(){
+  const project = document.getElementById('project').value;
+  const text = document.getElementById('chatText').value;
+  if(!project || !text){ return; }
+  await fetch(`/projects/${project}/chat`, {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({actor:'user', text})});
+  document.getElementById('chatLog').innerText += `you: ${text}
+`;
+  document.getElementById('chatText').value = '';
 }
 </script>
 </body>
@@ -258,14 +355,26 @@ function connect(project, task){
         pid = str(project_id)
         html = """
 <!doctype html>
-<html><head><meta charset='utf-8'/><meta name='viewport' content='width=device-width, initial-scale=1'/>
+<html>
+<head><meta charset='utf-8'/><meta name='viewport' content='width=device-width, initial-scale=1'/>
 <title>ODP Audit __PID__</title>
-<style>body{font-family:system-ui;background:#0b0f14;color:#e6edf3;margin:24px} a{color:#9cdcfe} pre{white-space:pre-wrap}</style>
+<style>
+  :root{color-scheme:dark}*{box-sizing:border-box}
+  body{margin:0;font-family:ui-sans-serif,system-ui;background:#0b0f14;color:#e6edf3}
+  .wrap{max-width:1200px;margin:24px auto;padding:0 16px}
+  .panel{background:#111826;border:1px solid #223044;border-radius:14px;padding:16px}
+  a{color:#9cdcfe}
+  pre{white-space:pre-wrap}
+</style>
 </head>
 <body>
-<h1>Audit (Project __PID__)</h1>
-<p><a href='/ui/projects/__PID__'>Back to project</a></p>
-<pre id='events'>(loading)</pre>
+<div class='wrap'>
+  <div class='panel'>
+    <h2>Audit (Project __PID__)</h2>
+    <p><a href='/ui/projects/__PID__'>Back to project</a></p>
+    <pre id='events'>(loading)</pre>
+  </div>
+</div>
 <script>
 const PROJECT_ID = "__PID__";
 (async ()=>{
@@ -285,12 +394,22 @@ const PROJECT_ID = "__PID__";
 <html>
 <head><meta charset='utf-8'/><meta name='viewport' content='width=device-width, initial-scale=1'/>
 <title>ODP Project __PID__</title>
-<style>body{font-family:system-ui;background:#0b0f14;color:#e6edf3;margin:24px} a{color:#9cdcfe}</style>
+<style>
+  :root{color-scheme:dark}*{box-sizing:border-box}
+  body{margin:0;font-family:ui-sans-serif,system-ui;background:#0b0f14;color:#e6edf3}
+  .wrap{max-width:1200px;margin:24px auto;padding:0 16px}
+  .panel{background:#111826;border:1px solid #223044;border-radius:14px;padding:16px}
+  a{color:#9cdcfe}
+</style>
 </head>
 <body>
-<h1>Project __PID__</h1>
-<p><a href='/'>Home</a></p>
-<div id='tasks'></div>
+<div class='wrap'>
+  <div class='panel'>
+    <h2>Project __PID__</h2>
+    <p><a href='/'>Back to dashboard</a> · <a href='/ui/projects/__PID__/audit'>Audit</a></p>
+    <div id='tasks'>(loading)</div>
+  </div>
+</div>
 <script>
 const PROJECT_ID = "__PID__";
 (async ()=>{
@@ -314,40 +433,88 @@ const PROJECT_ID = "__PID__";
 <html>
 <head><meta charset='utf-8'/><meta name='viewport' content='width=device-width, initial-scale=1'/>
 <title>ODP Task __TID__</title>
-<style>body{font-family:system-ui;background:#0b0f14;color:#e6edf3;margin:24px} a{color:#9cdcfe} pre{white-space:pre-wrap}</style>
+<style>
+  :root{color-scheme:dark}*{box-sizing:border-box}
+  body{margin:0;font-family:ui-sans-serif,system-ui;background:#0b0f14;color:#e6edf3}
+  .wrap{max-width:1200px;margin:24px auto;padding:0 16px}
+  .top{display:flex;gap:16px;align-items:center;justify-content:space-between;margin-bottom:16px}
+  .kicker{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#8aa0b8}
+  .pill{background:#0f1726;border:1px solid #223044;border-radius:999px;padding:8px 12px;color:#9fb3c8;font-size:12px}
+  .meta{color:#9fb3c8;font-size:13px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .panel{background:#111826;border:1px solid #223044;border-radius:14px;padding:16px}
+  a{color:#9cdcfe}
+  pre{white-space:pre-wrap}
+  .btn{background:#0b1220;border:1px solid #2a3a52;color:#e6edf3;border-radius:10px;padding:6px 10px;margin-right:8px;cursor:pointer}
+  .row{display:flex;gap:8px;flex-wrap:wrap}
+  .muted{color:#9fb3c8}
+  .code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:#b7c4d6}
+  @media (max-width: 900px){.grid{grid-template-columns:1fr}}
+</style>
 </head>
 <body>
-<h1>Task __TID__</h1>
-<p><a href='/ui/projects/__PID__'>Back to project</a></p>
-<div id='task'></div>
-<h3>Events</h3>
-<pre id='events'></pre>
+<div class='wrap'>
+  <div class='top'>
+    <div>
+      <div class='kicker'>Task Detail</div>
+      <h1>Task __TID__</h1>
+      <div class='meta'><a href='/ui/projects/__PID__'>Back to project</a> · <span id='state'>(loading)</span></div>
+    </div>
+    <div class='pill'>Project __PID__</div>
+  </div>
+
+  <div class='grid'>
+    <div class='panel'>
+      <h3>Summary</h3>
+      <div id='task'>(loading)</div>
+    </div>
+    <div class='panel'>
+      <h3>Events</h3>
+      <pre id='events'>(loading)</pre>
+    </div>
+    <div class='panel'>
+      <h3>Artifacts</h3>
+      <div id='artifacts'>(loading)</div>
+    </div>
+    <div class='panel'>
+      <h3>Pending Memory</h3>
+      <div id='pending'>(loading)</div>
+    </div>
+  </div>
+</div>
 <script>
 const PROJECT_ID = "__PID__";
 const TASK_ID = "__TID__";
 (async ()=>{
   const t = await (await fetch(`/projects/${PROJECT_ID}/tasks/${TASK_ID}`)).json();
-  document.getElementById('task').innerHTML = `<div><b>${t.title}</b> — <code>${t.state}</code></div>`;
+  document.getElementById('task').innerHTML = `
+    <div><b>${t.title}</b></div>
+    <div class='muted'>state: <span class='code'>${t.state}</span></div>
+    <div class='muted'>created: <span class='code'>${t.created_at || ''}</span></div>
+  `;
+  document.getElementById('state').innerText = t.state;
   const ev = await (await fetch(`/projects/${PROJECT_ID}/memory-events?task_id=${TASK_ID}&limit=200`)).json();
   document.getElementById('events').innerText = JSON.stringify(ev.events, null, 2);
 
   // Artifacts
   const arts = await (await fetch(`/projects/${PROJECT_ID}/tasks/${TASK_ID}/artifacts?limit=200`)).json();
-  const artHtml = (arts.artifacts||[]).map(a=>`<div><code>${a.type}</code> <a href='file://${a.uri}'>${a.uri}</a></div>`).join('');
-  const artDiv = document.createElement('div');
-  artDiv.innerHTML = `<h3>Artifacts</h3>` + (artHtml || '<div>(none)</div>');
-  document.body.appendChild(artDiv);
+  const artHtml = (arts.artifacts||[]).map(a=>{
+    const label = a.uri || '';
+    return `<div class='row'><span class='code'>${a.type}</span><span class='muted'>${label}</span></div>`;
+  }).join('');
+  document.getElementById('artifacts').innerHTML = artHtml || '<div class=\"muted\">(none)</div>';
 
   // Pending agent memory + promotion
   const am = await (await fetch(`/projects/${PROJECT_ID}/agent-memory?status=pending&task_id=${TASK_ID}&limit=200`)).json();
-  const memDiv = document.createElement('div');
-  memDiv.innerHTML = `<h3>Pending Agent Memory</h3>` + (am.agent_memory||[]).map(m=>{
+  const memHtml = (am.agent_memory||[]).map(m=>{
     return `<div style='margin-bottom:8px'><code>${m.role}:${m.type}</code> <pre>${JSON.stringify(m.payload,null,2)}</pre>
-      <button onclick="fetch('/projects/${PROJECT_ID}/agent-memory/${m.agent_memory_id}/promote',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({decision:'approved'})}).then(()=>location.reload())">Approve</button>
-      <button onclick="fetch('/projects/${PROJECT_ID}/agent-memory/${m.agent_memory_id}/promote',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({decision:'rejected'})}).then(()=>location.reload())">Reject</button>
+      <div class='row'>
+        <button class='btn' onclick="fetch('/projects/${PROJECT_ID}/agent-memory/${m.agent_memory_id}/promote',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({decision:'approved'})}).then(()=>location.reload())">Approve</button>
+        <button class='btn' onclick="fetch('/projects/${PROJECT_ID}/agent-memory/${m.agent_memory_id}/promote',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({decision:'rejected'})}).then(()=>location.reload())">Reject</button>
+      </div>
     </div>`
   }).join('');
-  document.body.appendChild(memDiv);
+  document.getElementById('pending').innerHTML = memHtml || '<div class=\"muted\">(none)</div>';
 })();
 </script>
 </body>
