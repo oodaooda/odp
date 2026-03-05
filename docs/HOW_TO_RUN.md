@@ -56,6 +56,19 @@ PY
 - `ODP_ENABLE_MERGE=1` (enable merge automation)
 - `ODP_LOG_REQUESTS=1` (request logging)
 
+## 7b. UI Screenshots (Optional)
+Install Playwright browsers once:
+```bash
+/home/deimos/miniforge3/bin/conda run -n odp python -m playwright install --with-deps
+```
+Capture pages:
+```bash
+/home/deimos/miniforge3/bin/conda run -n odp python scripts/screenshot_ui.py \\
+  --url http://10.0.0.25:8080/ \\
+  --url http://10.0.0.25:8080/ui/chat?project_id={project_id} \\
+  --out docs/ui_captures
+```
+
 ## 8. Stop Infra
 ```bash
 cd /home/deimos/Documents/openClaw/genesis/odp

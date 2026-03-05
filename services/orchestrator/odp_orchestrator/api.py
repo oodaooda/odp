@@ -10,7 +10,7 @@ from uuid import UUID
 
 from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect, Query, Request
 from fastapi.responses import JSONResponse
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from redis.asyncio import Redis
 from pydantic import BaseModel, Field
 
@@ -581,6 +581,8 @@ if(saved){ setProject(saved); loadChat(saved); }
 <script>
 const PROJECT_ID = "__PID__";
 const TASK_ID = "__TID__";
+const STORE_KEY = 'odp_project_id';
+if(PROJECT_ID){ localStorage.setItem(STORE_KEY, PROJECT_ID); }
 async function loadGates(){
   const ev = await (await fetch(`/projects/${PROJECT_ID}/memory-events?limit=200`)).json();
   const decisions = (ev.events||[]).filter(e=>e.type === 'decision' || (e.payload && e.payload.gate));
@@ -593,9 +595,15 @@ async function loadGates(){
   document.getElementById('gateRows').innerHTML = rows;
 }
 async function loadEvidence(){
-  if(!TASK_ID){ return; }
-  const arts = await (await fetch(`/projects/${PROJECT_ID}/tasks/${TASK_ID}/artifacts?limit=200`)).json();
-  const list = (arts.artifacts||[]).map(a=>`<div class='row'><div>${a.type}</div><div class='muted'>${a.uri}</div><div></div></div>`).join('');
+  const params = new URLSearchParams(location.search);
+  const task = params.get('task_id') || TASK_ID;
+  if(!task){ return; }
+  const arts = await (await fetch(`/projects/${PROJECT_ID}/tasks/${task}/artifacts?limit=200`)).json();
+  const list = (arts.artifacts||[]).map(a=>{
+    const isImage = (a.type === 'screenshot') || (a.uri && a.uri.toLowerCase().endsWith('.png'));
+    const img = isImage ? `<div style="grid-column:1 / -1;margin-top:6px"><img src="/projects/${PROJECT_ID}/tasks/${task}/artifacts/${a.artifact_id}" style="max-width:100%;border-radius:10px;border:1px solid #2a3442"/></div>` : '';
+    return `<div class='row'><div>${a.type}</div><div class='muted'>${a.uri}</div><div></div></div>${img}`;
+  }).join('');
   document.getElementById('evidenceBox').innerHTML = list || '<div class="muted">(none)</div>';
 }
 loadGates();
@@ -660,6 +668,7 @@ loadEvidence();
 </div>
 <script>
 const PROJECT_ID = "__PID__";
+(function(){ localStorage.setItem('odp_project_id', PROJECT_ID); })();
 (async ()=>{
   const ev = await (await fetch(`/projects/${PROJECT_ID}/memory-events?limit=200`)).json();
   document.getElementById('events').innerText = JSON.stringify(ev.events, null, 2);
@@ -723,6 +732,7 @@ const PROJECT_ID = "__PID__";
 </div>
 <script>
 const PROJECT_ID = "__PID__";
+(function(){ localStorage.setItem('odp_project_id', PROJECT_ID); })();
 (async ()=>{
   const r = await fetch(`/projects/${PROJECT_ID}/tasks`);
   const tasks = await r.json();
@@ -825,12 +835,19 @@ const PROJECT_ID = "__PID__";
         <h3>Audit Log</h3>
         <div id='events' class='audit'>(loading)</div>
       </section>
+
+      <section class='panel'>
+        <h3>Screenshots</h3>
+        <div id='screenshots' class='table'>(loading)</div>
+      </section>
     </div>
   </main>
 </div>
 <script>
 const PROJECT_ID = "__PID__";
 const TASK_ID = "__TID__";
+const STORE_KEY = 'odp_project_id';
+if(PROJECT_ID){ localStorage.setItem(STORE_KEY, PROJECT_ID); }
 (async ()=>{
   const t = await (await fetch(`/projects/${PROJECT_ID}/tasks/${TASK_ID}`)).json();
   document.getElementById('task').innerHTML = `
@@ -854,6 +871,10 @@ const TASK_ID = "__TID__";
   const am = await (await fetch(`/projects/${PROJECT_ID}/agent-memory?status=pending&task_id=${TASK_ID}&limit=200`)).json();
   const memHtml = (am.agent_memory||[]).map(m=>`<div class='trow'><div>${m.role}:${m.type}</div><div class='muted'>${JSON.stringify(m.payload)}</div><div></div></div>`).join('');
   document.getElementById('agentResults').innerHTML = memHtml || '<div class="muted">(none)</div>';
+
+  const shots = (arts.artifacts||[]).filter(a=>a.type==='screenshot' || (a.uri && a.uri.toLowerCase().endsWith('.png')));
+  const shotHtml = shots.map(a=>`<div style="margin-bottom:10px"><div class="muted">${a.uri}</div><img src="/projects/${PROJECT_ID}/tasks/${TASK_ID}/artifacts/${a.artifact_id}" style="max-width:100%;border-radius:10px;border:1px solid #2a3442"/></div>`).join('');
+  document.getElementById('screenshots').innerHTML = shotHtml || '<div class="muted">(none)</div>';
 })();
 </script>
 </body>
@@ -1051,6 +1072,27 @@ const TASK_ID = "__TID__";
     async def list_task_artifacts(project_id: UUID, task_id: UUID, limit: int = Query(default=200, ge=1, le=1000)) -> dict[str, Any]:
         rows = await memory.list_artifacts(project_id=project_id, task_id=task_id, limit=limit)
         return {"artifacts": rows}
+
+    @app.get("/projects/{project_id}/tasks/{task_id}/artifacts/{artifact_id}")
+    async def get_task_artifact(project_id: UUID, task_id: UUID, artifact_id: UUID) -> FileResponse:
+        row = await memory.get_artifact(project_id=project_id, task_id=task_id, artifact_id=artifact_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="artifact not found")
+        base = Path(os.getenv("ODP_ARTIFACT_DIR", "runtime/artifacts")).resolve()
+        path = Path(row["uri"])
+        if not path.is_absolute():
+            path = base / path
+        try:
+            resolved = path.resolve()
+        except Exception:
+            raise HTTPException(status_code=404, detail="artifact not found")
+        try:
+            resolved.relative_to(base)
+        except Exception:
+            raise HTTPException(status_code=403, detail="artifact path forbidden")
+        if not resolved.is_file():
+            raise HTTPException(status_code=404, detail="artifact not found")
+        return FileResponse(str(resolved))
 
     @app.post("/projects/{project_id}/tasks/{task_id}/artifacts")
     async def upload_artifact(project_id: UUID, task_id: UUID, file: UploadFile = File(...)) -> dict[str, Any]:

@@ -415,6 +415,35 @@ class MemoryWriter:
             for r in rows
         ]
 
+    async def get_artifact(
+        self, *, project_id: UUID, task_id: UUID, artifact_id: UUID
+    ) -> dict[str, Any] | None:
+        sql = """
+            select artifact_id,type,uri,created_at
+            from artifacts
+            where project_id=:project_id and task_id=:task_id and artifact_id=:artifact_id
+            limit 1
+        """
+        async with self.engine.begin() as conn:
+            row = (
+                await conn.execute(
+                    text(sql),
+                    {
+                        "project_id": str(project_id),
+                        "task_id": str(task_id),
+                        "artifact_id": str(artifact_id),
+                    },
+                )
+            ).mappings().first()
+        if not row:
+            return None
+        return {
+            "artifact_id": str(row["artifact_id"]),
+            "type": str(row["type"]),
+            "uri": str(row["uri"]),
+            "created_at": str(row["created_at"]),
+        }
+
     async def search_memory_events_text(
         self, *, project_id: UUID, query: str, limit: int = 10
     ) -> list[dict[str, Any]]:
