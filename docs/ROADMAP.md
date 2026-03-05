@@ -17,7 +17,8 @@ This file is the high-level progress tracker (checkboxes). Keep it up to date as
 
 - [x] **M7** – Production hardening (auth/RBAC, audit UI, deployment, observability, CI/CD)
 
-- [ ] Replace fake embeddings with a real embedding pipeline (configurable; keep local/dev safe)
-- [ ] Git hardening: branch-per-task + worktree cleanup + stricter sandbox guarantees
-- [ ] UI upgrades (dashboard pages for evidence + pending memory + compaction)
+## Remaining before M8
+
 - [ ] Performance pass (orchestrator loop latency + WS throughput)
+- [ ] UI polish pass (visual parity with UI_SPEC across all pages + richer live data)
+- [ ] Deployment automation (systemd unit + reverse proxy/TLS + backups script)
