@@ -269,7 +269,10 @@ def create_app() -> FastAPI:
           <h1>Dashboard</h1>
           <div class="meta">Project: <span id="projectLabel">not set</span></div>
         </div>
-        <button class="btn" onclick="createTask()">New Task +</button>
+        <div>
+          <button class="btn" onclick="createTask()">New Task +</button>
+          <button class="btn" onclick="seedDemo()" style="margin-left:8px">Seed Demo</button>
+        </div>
       </div>
 
       <div class="grid kpis">
@@ -370,6 +373,13 @@ async function loadChat(project){
   const log = document.getElementById('chatLog');
   log.innerHTML = (data.messages||[]).map(m=>`<div class='msg ${m.actor==='user'?'you':''}'>${m.actor}: ${m.text}</div>`).join('');
   log.scrollTop = log.scrollHeight;
+}
+async function seedDemo(){
+  const project = document.getElementById('project').value || localStorage.getItem(STORE_KEY);
+  if(!project){ return; }
+  await fetch(`/projects/${project}/demo`, {method:'POST'});
+  await loadTasks(project);
+  await loadChat(project);
 }
 const saved = localStorage.getItem(STORE_KEY);
 if(saved){ setProject(saved); loadTasks(saved); loadChat(saved); }
@@ -854,6 +864,22 @@ const TASK_ID = "__TID__";
     @app.post("/projects/{project_id}/tasks", response_model=Task)
     async def create_task(project_id: UUID, req: TaskCreateRequest) -> Task:
         return await orch.create_task(project_id, req)
+
+    @app.post("/projects/{project_id}/demo")
+    async def seed_demo(project_id: UUID) -> dict[str, Any]:
+        # Create a few sample tasks + events for UI demo purposes.
+        t1 = await orch.create_task(project_id, TaskCreateRequest(title="ODP-014"))
+        t2 = await orch.create_task(project_id, TaskCreateRequest(title="ODP-015"))
+        t3 = await orch.create_task(project_id, TaskCreateRequest(title="ODP-016"))
+        for t, state in [(t1, "running"), (t2, "pending"), (t3, "failed")]:
+            await memory.write_memory_event(
+                project_id=project_id,
+                task_id=t.task_id,
+                type_="state_transition",
+                actor="orchestrator",
+                payload={"from": "INIT", "to": state},
+            )
+        return {"ok": True, "task_ids": [str(t1.task_id), str(t2.task_id), str(t3.task_id)]}
 
     @app.get("/projects/{project_id}/tasks", response_model=list[Task])
     async def list_tasks(project_id: UUID) -> list[Task]:
