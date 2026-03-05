@@ -17,8 +17,12 @@ This file is the high-level progress tracker (checkboxes). Keep it up to date as
 
 - [x] **M7** – Production hardening (auth/RBAC, audit UI, deployment, observability, CI/CD)
 
-## Remaining before M8
+## Remaining after M8
 
 - [ ] Performance pass (orchestrator loop latency + WS throughput)
 - [ ] UI polish pass (visual parity with UI_SPEC across all pages + richer live data)
 - [ ] Deployment automation (systemd unit + reverse proxy/TLS + backups script)
+
+## Milestone 8
+
+- [x] **M8** – UI parity with dark-mode prototypes + live data bindings

@@ -26,3 +26,4 @@
 - `MILESTONE_5.md`
 - `MILESTONE_6.md`
 - `MILESTONE_7.md`
+- `MILESTONE_8.md`
