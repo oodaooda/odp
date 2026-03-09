@@ -13,32 +13,32 @@ Currently, the engineer agent just runs `git diff` and `pytest` on an unchanged 
 ## Scope
 
 ### 1) LLM client module
-- [ ] New `services/orchestrator/odp_orchestrator/llm.py` — thin wrapper supporting Claude (Anthropic SDK) and OpenAI
-- [ ] Config-gated: `ODP_LLM_PROVIDER=anthropic|openai`, `ODP_LLM_MODEL`, `ODP_LLM_API_KEY`
-- [ ] Disabled by default (agents fall back to current deterministic behavior)
-- [ ] Token/cost tracking per call
+- [x] New `services/orchestrator/odp_orchestrator/llm.py` — thin wrapper supporting Claude (Anthropic SDK) and OpenAI
+- [x] Config-gated: `ODP_LLM_PROVIDER=anthropic|openai`, `ODP_LLM_MODEL`, `ODP_LLM_API_KEY`
+- [x] Disabled by default (agents fall back to current deterministic behavior)
+- [x] Token/cost tracking per call
 
 ### 2) Engineer agent — code generation
-- [ ] Agent receives task title, description, and spec refs as context
-- [ ] Calls LLM with: task prompt + relevant file contents from workspace
-- [ ] Applies generated diff/code to the worktree
-- [ ] Runs `pytest -q` to validate
-- [ ] On test failure: feeds error output back to LLM for retry (max 3 attempts)
-- [ ] Returns final diff, test output, and generation logs as artifacts
+- [x] Agent receives task title, description, and spec refs as context
+- [x] Calls LLM with: task prompt + relevant file contents from workspace
+- [x] Applies generated diff/code to the worktree
+- [x] Runs `pytest -q` to validate
+- [x] On test failure: feeds error output back to LLM for retry (max 3 attempts)
+- [x] Returns final diff, test output, and generation logs as artifacts
 
 ### 3) Task context passing
-- [ ] Orchestrator passes task metadata (title, spec_hash, spec file contents) to agent subprocess
-- [ ] Agent reads spec files from repo to build LLM context
+- [x] Orchestrator passes task metadata (title, spec_hash, spec file contents) to agent subprocess
+- [x] Agent reads spec files from repo to build LLM context
 - [ ] Memory search (pgvector) provides relevant past decisions as context
 
 ### 4) QA/Security agents — enhanced validation
-- [ ] QA agent: no LLM needed, but now validates that generated code matches spec intent (spec hash check already exists)
-- [ ] Security agent: scan generated diffs for secrets/vulnerabilities (already functional, just needs to run on real diffs)
+- [x] QA agent: no LLM needed, but now validates that generated code matches spec intent (spec hash check already exists)
+- [x] Security agent: scan generated diffs for secrets/vulnerabilities (already functional, just needs to run on real diffs)
 
 ### 5) Orchestrator retry loop
-- [ ] On engineer failure, orchestrator can re-dispatch with feedback from QA/security
-- [ ] Configurable max retries: `ODP_MAX_AGENT_RETRIES` (default 3)
-- [ ] Each retry logged as a memory event with the feedback context
+- [x] On engineer failure, orchestrator can re-dispatch with feedback from QA/security
+- [x] Configurable max retries: `ODP_MAX_AGENT_RETRIES` (default 3)
+- [x] Each retry logged as a memory event with the feedback context
 
 ## Non-goals
 - Multi-file refactoring across entire repos (single-task scope only)
@@ -46,12 +46,12 @@ Currently, the engineer agent just runs `git diff` and `pytest` on an unchanged 
 - Fine-tuning or training models
 
 ## Deliverables
-- [ ] `llm.py` module with Claude + OpenAI support
-- [ ] Engineer agent generates real code from task descriptions
-- [ ] Test failure → LLM retry loop functional
-- [ ] All existing tests still pass (`ODP_AGENT_TEST_MODE=1` unchanged)
-- [ ] New integration test: create task → agent generates code → tests pass → commit
-- [ ] Documentation: `docs/LLM_INTEGRATION.md`
+- [x] `llm.py` module with Claude + OpenAI support
+- [x] Engineer agent generates real code from task descriptions
+- [x] Test failure → LLM retry loop functional
+- [x] All existing tests still pass (`ODP_AGENT_TEST_MODE=1` unchanged)
+- [ ] New integration test: create task → agent generates code → tests pass → commit *(requires real API key)*
+- [x] Documentation: `12_LLM_INTEGRATION.md`
 
 ## Evidence required
 - Integration test passing with real LLM call

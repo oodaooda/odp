@@ -6,10 +6,10 @@ Make ODP deployable and secure for real use — not just local dev. This covers 
 ## Scope
 
 ### 1) Auth flow in React app
-- [ ] Login page or token input screen (shown when backend returns 401)
-- [ ] Token stored in localStorage, sent as `Authorization: Bearer` header on all API calls
+- [x] Login page or token input screen (shown when backend returns 401)
+- [x] Token stored in localStorage, sent as `Authorization: Bearer` header on all API calls
 - [ ] Role indicator in sidebar (reader/writer/admin)
-- [ ] Graceful handling of expired/invalid tokens
+- [x] Graceful handling of expired/invalid tokens
 
 ### 2) Frontend test suite
 - [ ] Vitest + React Testing Library setup in `apps/web/`
@@ -18,29 +18,29 @@ Make ODP deployable and secure for real use — not just local dev. This covers 
 - [ ] CI runs frontend tests alongside backend tests
 
 ### 3) CI/CD pipeline
-- [ ] GitHub Actions workflow: lint (ruff) → backend tests (pytest) → frontend build + test
-- [ ] Fail PR if any check fails
-- [ ] Build artifact: `apps/web/dist/` included in release
+- [x] GitHub Actions workflow: lint (ruff) → backend tests (pytest) → frontend build + test
+- [x] Fail PR if any check fails
+- [x] Build artifact: `apps/web/dist/` included in release
 
 ### 4) Reverse proxy + TLS
-- [ ] Caddy or nginx config for TLS termination
-- [ ] WebSocket proxying (`/ws/*`)
-- [ ] Rate limiting and request size limits
-- [ ] Example `Caddyfile` or `nginx.conf` in `infra/`
+- [x] Caddy config for TLS termination
+- [x] WebSocket proxying (`/ws/*`)
+- [x] Rate limiting and request size limits
+- [x] Example `Caddyfile` in `infra/`
 
 ### 5) Process management
-- [ ] systemd unit files for: orchestrator API, Redis, Postgres
-- [ ] Auto-restart on failure
+- [x] systemd unit files for: orchestrator API, Redis
+- [x] Auto-restart on failure
 - [ ] Log rotation config
-- [ ] Example files in `infra/systemd/`
+- [x] Example files in `infra/systemd/`
 
 ### 6) Backup & restore
-- [ ] `scripts/backup.sh` — pg_dump + artifact tarball
-- [ ] `scripts/restore.sh` — pg_restore + artifact extraction
+- [x] `scripts/backup.sh` — pg_dump + artifact tarball
+- [x] `scripts/restore.sh` — pg_restore + artifact extraction
 - [ ] Documented in runbook
 
 ### 7) Bug fixes
-- [ ] Fix flaky M4 chat compaction test (SQLite race condition)
+- [x] Fix flaky M4 chat compaction test (SQLite race condition)
 - [ ] Performance pass: ensure orchestrator loop < 200ms (SRD requirement)
 - [ ] Verify WebSocket latency < 1s (SRD requirement)
 
@@ -50,13 +50,13 @@ Make ODP deployable and secure for real use — not just local dev. This covers 
 - SSO / OAuth (token-based auth is sufficient for v1)
 
 ## Deliverables
-- [ ] Auth flow working in React app
+- [x] Auth flow working in React app
 - [ ] Frontend test suite with >80% coverage on critical paths
-- [ ] CI pipeline green on GitHub Actions
-- [ ] TLS reverse proxy config in `infra/`
-- [ ] systemd units in `infra/systemd/`
-- [ ] Backup/restore scripts in `scripts/`
-- [ ] Flaky M4 test fixed
+- [x] CI pipeline green on GitHub Actions
+- [x] TLS reverse proxy config in `infra/`
+- [x] systemd units in `infra/systemd/`
+- [x] Backup/restore scripts in `scripts/`
+- [x] Flaky M4 test fixed
 - [ ] All SRD performance requirements verified
 
 ## Evidence required
