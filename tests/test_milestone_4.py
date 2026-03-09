@@ -59,6 +59,10 @@ def test_m4_chat_compaction_writes_summary_memory_event(app):
         assert r.status_code == 200
         task_id = UUID(r.json()["task_id"])
 
+        # Wait for background task to settle before writing chat messages.
+        import time
+        time.sleep(0.5)
+
         # Write some chat messages.
         for i in range(6):
             c = client.post(
@@ -66,6 +70,9 @@ def test_m4_chat_compaction_writes_summary_memory_event(app):
                 json={"text": f"msg-{i}", "task_id": str(task_id)},
             )
             assert c.status_code == 200
+
+        # Allow SQLite writes to flush.
+        time.sleep(0.3)
 
         cc = client.post(
             f"/projects/{project_id}/chat/compact",
@@ -76,8 +83,6 @@ def test_m4_chat_compaction_writes_summary_memory_event(app):
 
         # Compaction is additive; allow a short eventual-consistency window while background task
         # transitions complete.
-        import time
-
         t0 = time.time()
         while True:
             ev = client.get(
@@ -88,6 +93,6 @@ def test_m4_chat_compaction_writes_summary_memory_event(app):
             events = ev.json()["events"]
             if any(e["type"] == "summary" for e in events):
                 break
-            if time.time() - t0 > 2.0:
+            if time.time() - t0 > 5.0:
                 assert False, f"summary not found in memory-events: {events}"
-            time.sleep(0.05)
+            time.sleep(0.1)

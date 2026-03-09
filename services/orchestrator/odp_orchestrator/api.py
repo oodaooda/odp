@@ -486,6 +486,104 @@ def create_app() -> FastAPI:
         n = await orch.resume_incomplete(project_id)
         return {"resumed": n}
 
+    # ── Project Management ──
+
+    @app.get("/projects")
+    async def list_projects() -> dict[str, Any]:
+        """List all known projects (stored in Redis)."""
+        keys = []
+        try:
+            async for key in redis.scan_iter("odp:project:*:meta"):
+                keys.append(key)
+        except Exception:
+            pass
+        projects = []
+        for k in keys:
+            raw = await redis.get(k)
+            if raw:
+                try:
+                    projects.append(json.loads(raw if isinstance(raw, str) else raw.decode("utf-8")))
+                except Exception:
+                    pass
+        return {"projects": projects}
+
+    class ProjectCreateRequest(BaseModel):
+        name: str = Field(min_length=1, max_length=200)
+        github_repo: str = Field(default="", max_length=200)
+        default_branch: str = Field(default="main", max_length=100)
+
+    @app.post("/projects")
+    async def create_project(req: ProjectCreateRequest) -> dict[str, Any]:
+        from uuid import uuid4
+        project_id = str(uuid4())
+        meta = {
+            "project_id": project_id,
+            "name": req.name,
+            "github_repo": req.github_repo,
+            "default_branch": req.default_branch,
+        }
+        await redis.set(f"odp:project:{project_id}:meta", json.dumps(meta))
+        return meta
+
+    # ── GitHub Webhook ──
+
+    @app.post("/webhooks/github")
+    async def github_webhook(request: Request) -> dict[str, Any]:
+        """Receive GitHub webhook events and create tasks."""
+        import hashlib
+        import hmac
+
+        secret = os.getenv("ODP_GITHUB_WEBHOOK_SECRET", "")
+        body = await request.body()
+
+        # Verify signature if secret is configured.
+        if secret:
+            sig_header = request.headers.get("X-Hub-Signature-256", "")
+            expected = "sha256=" + hmac.new(
+                secret.encode(), body, hashlib.sha256
+            ).hexdigest()
+            if not hmac.compare_digest(sig_header, expected):
+                raise HTTPException(status_code=403, detail="invalid signature")
+
+        try:
+            payload = json.loads(body)
+        except Exception:
+            raise HTTPException(status_code=400, detail="invalid JSON")
+
+        event_type = request.headers.get("X-GitHub-Event", "")
+
+        # Issue with 'odp' label → create task.
+        if event_type == "issues" and payload.get("action") == "opened":
+            labels = [l.get("name", "") for l in payload.get("issue", {}).get("labels", [])]
+            if "odp" in labels:
+                issue = payload["issue"]
+                # Use default project for now; multi-project matching by repo is future work.
+                default_pid = UUID("00000000-0000-0000-0000-000000000001")
+                t = await orch.create_task(
+                    default_pid,
+                    TaskCreateRequest(
+                        title=issue.get("title", "GitHub Issue"),
+                        description=issue.get("body", ""),
+                    ),
+                )
+                return {"ok": True, "task_id": str(t.task_id), "source": "issue"}
+
+        # PR opened → create review task.
+        if event_type == "pull_request" and payload.get("action") in ("opened", "synchronize"):
+            pr = payload.get("pull_request", {})
+            default_pid = UUID("00000000-0000-0000-0000-000000000001")
+            t = await orch.create_task(
+                default_pid,
+                TaskCreateRequest(
+                    title=f"Review PR #{pr.get('number', '?')}: {pr.get('title', '')}",
+                    description=pr.get("body", ""),
+                ),
+            )
+            return {"ok": True, "task_id": str(t.task_id), "source": "pull_request"}
+
+        # Acknowledged but not handled.
+        return {"ok": True, "action": "ignored"}
+
     # ── Serve React SPA (production build) ──
     # When apps/web/dist exists, serve its static files and fall back to
     # index.html for client-side routing.

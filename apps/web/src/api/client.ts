@@ -123,6 +123,24 @@ export const searchMemory = (projectId: string, query: string, limit = 20) =>
     `/projects/${projectId}/memory-events?q=${encodeURIComponent(query)}&limit=${limit}`
   );
 
+/* ── Projects ── */
+
+export interface Project {
+  project_id: string;
+  name: string;
+  github_repo: string;
+  default_branch: string;
+}
+
+export const listProjects = () =>
+  api<{ projects: Project[] }>("/projects");
+
+export const createProject = (name: string, githubRepo = "", defaultBranch = "main") =>
+  api<Project>("/projects", {
+    method: "POST",
+    body: JSON.stringify({ name, github_repo: githubRepo, default_branch: defaultBranch }),
+  });
+
 /* ── Demo / Admin ── */
 
 export const seedDemo = (projectId: string) =>

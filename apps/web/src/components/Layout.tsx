@@ -1,5 +1,7 @@
-import { NavLink, Outlet, useParams } from "react-router-dom";
+import { useEffect, useState, useCallback } from "react";
+import { NavLink, Outlet, useParams, useNavigate } from "react-router-dom";
 import { useProjectSocket } from "../hooks/useProjectSocket";
+import { listProjects, type Project } from "../api/client";
 
 const NAV_ITEMS = [
   { label: "Dashboard", path: "" },
@@ -13,8 +15,28 @@ const NAV_ITEMS = [
 
 export default function Layout() {
   const { projectId } = useParams();
+  const navigate = useNavigate();
   const base = `/projects/${projectId}`;
   const { connected } = useProjectSocket(projectId);
+  const [projects, setProjects] = useState<Project[]>([]);
+
+  const loadProjects = useCallback(async () => {
+    try {
+      const res = await listProjects();
+      setProjects(res.projects ?? []);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    loadProjects();
+  }, [loadProjects]);
+
+  const handleProjectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const pid = e.target.value;
+    if (pid) navigate(`/projects/${pid}`);
+  };
 
   return (
     <div className="app-layout">
@@ -27,6 +49,26 @@ export default function Layout() {
             <span style={{ color: "var(--text-muted)" }}>{connected ? "Live" : "Polling"}</span>
           </div>
         </div>
+        {projects.length > 0 && (
+          <div style={{ padding: "8px 16px" }}>
+            <select
+              value={projectId ?? ""}
+              onChange={handleProjectChange}
+              style={{
+                width: "100%", background: "var(--bg-input)",
+                border: "1px solid var(--border)", borderRadius: "var(--radius-sm)",
+                padding: "6px 8px", color: "var(--text-primary)", fontSize: 12,
+              }}
+            >
+              <option value="">Select project...</option>
+              {projects.map((p) => (
+                <option key={p.project_id} value={p.project_id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         {NAV_ITEMS.map((item) => (
           <NavLink
             key={item.label}
