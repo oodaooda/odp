@@ -28,6 +28,7 @@ export interface Task {
   project_id: string;
   task_id: string;
   title: string;
+  description: string;
   spec_hash: string;
   state: TaskState;
   created_at_ms: number;

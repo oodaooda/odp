@@ -21,6 +21,7 @@ export default function Dashboard() {
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [newTaskDesc, setNewTaskDesc] = useState("");
   const [showNewTask, setShowNewTask] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -63,9 +64,10 @@ export default function Dashboard() {
   const handleCreateTask = async () => {
     if (!newTaskTitle.trim() || !projectId) return;
     try {
-      await createTask(projectId, newTaskTitle.trim());
+      await createTask(projectId, newTaskTitle.trim(), newTaskDesc.trim());
       toast("Task created", "success");
       setNewTaskTitle("");
+      setNewTaskDesc("");
       setShowNewTask(false);
       refresh();
     } catch {
@@ -117,10 +119,9 @@ export default function Dashboard() {
 
       {/* New Task input */}
       {showNewTask && (
-        <div className="card mb-20" style={{ display: "flex", gap: 8 }}>
+        <div className="card mb-20" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <input
             style={{
-              flex: 1,
               background: "var(--bg-input)",
               border: "1px solid var(--border)",
               borderRadius: "var(--radius-sm)",
@@ -132,15 +133,33 @@ export default function Dashboard() {
             placeholder="Task title..."
             value={newTaskTitle}
             onChange={(e) => setNewTaskTitle(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleCreateTask()}
             autoFocus
           />
-          <button className="btn btn-primary" onClick={handleCreateTask}>
-            Create
-          </button>
-          <button className="btn" onClick={() => setShowNewTask(false)}>
-            Cancel
-          </button>
+          <textarea
+            style={{
+              background: "var(--bg-input)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--radius-sm)",
+              padding: "8px 12px",
+              color: "var(--text-primary)",
+              fontSize: 13,
+              outline: "none",
+              minHeight: 80,
+              resize: "vertical",
+              fontFamily: "inherit",
+            }}
+            placeholder="Description (optional) — describe what the agent should implement..."
+            value={newTaskDesc}
+            onChange={(e) => setNewTaskDesc(e.target.value)}
+          />
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn btn-primary" onClick={handleCreateTask}>
+              Create
+            </button>
+            <button className="btn" onClick={() => setShowNewTask(false)}>
+              Cancel
+            </button>
+          </div>
         </div>
       )}
 

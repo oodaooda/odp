@@ -33,10 +33,10 @@ export const listTasks = (projectId: string) =>
 export const getTask = (projectId: string, taskId: string) =>
   api<Task>(`/projects/${projectId}/tasks/${taskId}`);
 
-export const createTask = (projectId: string, title: string) =>
+export const createTask = (projectId: string, title: string, description = "") =>
   api<Task>(`/projects/${projectId}/tasks`, {
     method: "POST",
-    body: JSON.stringify({ title }),
+    body: JSON.stringify({ title, description }),
   });
 
 /* ── Chat ── */

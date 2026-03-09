@@ -57,6 +57,7 @@ class Orchestrator:
             project_id=project_id,
             task_id=uuid4(),
             title=req.title,
+            description=req.description,
             spec_hash=compute_spec_hash(),
             state=TaskState.INIT,
             created_at_ms=now_ms(),
@@ -369,10 +370,12 @@ class Orchestrator:
         task_id: UUID,
         role: AgentRole,
         expected_spec_hash: str | None = None,
+        task_context: dict[str, Any] | None = None,
     ) -> AgentResult:
         max_retries = int(os.getenv("ODP_AGENT_MAX_RETRIES", "1"))
         attempt = 0
         backoffs = [0.2, 0.5, 1.0]
+        feedback: str | None = None
         while True:
             res = await run_agent(
                 cfg=self.agent_cfg,
@@ -380,16 +383,31 @@ class Orchestrator:
                 task_id=task_id,
                 role=role,
                 expected_spec_hash=expected_spec_hash,
+                task_context=task_context,
+                feedback=feedback,
             )
-            retryable = ("parse failure" in res.summary.lower()) or ("timed out" in res.summary.lower())
+            retryable = (
+                ("parse failure" in res.summary.lower())
+                or ("timed out" in res.summary.lower())
+                or (not res.ok and role == AgentRole.engineer)
+            )
             if res.ok or (not retryable) or attempt >= max_retries:
                 return res
+            # Capture failure output as feedback for next attempt.
+            feedback = f"Attempt {attempt + 1} failed: {res.summary}\n"
+            if res.logs:
+                feedback += "\n".join(res.logs[-20:])
             delay = backoffs[min(attempt, len(backoffs) - 1)]
             await asyncio.sleep(delay)
             attempt += 1
 
     async def _run_engineer(self, project_id: UUID, task_id: UUID) -> AgentResult:
-        return await self._run_with_retries(project_id=project_id, task_id=task_id, role=AgentRole.engineer)
+        t = await self.get_task(project_id, task_id)
+        task_context = {"title": t.title, "description": t.description} if t else {}
+        return await self._run_with_retries(
+            project_id=project_id, task_id=task_id, role=AgentRole.engineer,
+            task_context=task_context,
+        )
 
     async def _run_qa(self, project_id: UUID, task_id: UUID) -> AgentResult:
         # QA validates spec hash as part of its evidence.

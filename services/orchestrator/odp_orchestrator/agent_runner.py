@@ -84,6 +84,8 @@ async def run_agent(
     task_id: UUID,
     role: AgentRole,
     expected_spec_hash: str | None = None,
+    task_context: dict[str, Any] | None = None,
+    feedback: str | None = None,
 ) -> AgentResult:
     # Per-task, per-role isolated workspace.
     ws_root = cfg.workspaces_root / str(project_id) / str(task_id) / str(role)
@@ -99,6 +101,13 @@ async def run_agent(
     env.setdefault("PYTHONUNBUFFERED", "1")
     if expected_spec_hash:
         env["ODP_EXPECTED_SPEC_HASH"] = expected_spec_hash
+
+    # Pass task context to agents via env (JSON-encoded).
+    if task_context:
+        import json as _json
+        env["ODP_TASK_CONTEXT"] = _json.dumps(task_context)
+    if feedback:
+        env["ODP_AGENT_FEEDBACK"] = feedback
 
     cmd = [
         "python",
@@ -118,6 +127,13 @@ async def run_agent(
         import contextlib
         import io
 
+        # Inject task context into env for in-process agents too.
+        if task_context:
+            import json as _json
+            os.environ["ODP_TASK_CONTEXT"] = _json.dumps(task_context)
+        if feedback:
+            os.environ["ODP_AGENT_FEEDBACK"] = feedback
+
         from services.agents.odp_agent.main import main as agent_main
 
         buf = io.StringIO()
@@ -125,6 +141,10 @@ async def run_agent(
             rc = agent_main(["--role", str(role), "--workspace", str(workspace), "--artifacts", str(art_dir)])
         stdout = buf.getvalue()
         timed_out = False
+
+        # Clean up injected env vars.
+        os.environ.pop("ODP_TASK_CONTEXT", None)
+        os.environ.pop("ODP_AGENT_FEEDBACK", None)
     else:
         p = await asyncio.create_subprocess_exec(
             *cmd,

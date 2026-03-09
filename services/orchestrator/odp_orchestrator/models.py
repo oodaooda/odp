@@ -58,6 +58,7 @@ class Task(BaseModel):
     project_id: UUID
     task_id: UUID
     title: str
+    description: str = ""
     spec_hash: str
     state: TaskState = TaskState.INIT
     created_at_ms: int
@@ -71,6 +72,7 @@ class Task(BaseModel):
 
 class TaskCreateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=50_000)
 
 
 class ChatMessageRequest(BaseModel):

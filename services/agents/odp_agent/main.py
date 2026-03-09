@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import subprocess
@@ -36,6 +37,129 @@ def _write(path: Path, text_: str) -> str:
     return str(path)
 
 
+def _get_task_context() -> dict[str, str]:
+    """Read task context from ODP_TASK_CONTEXT env var."""
+    raw = os.getenv("ODP_TASK_CONTEXT", "")
+    if not raw:
+        return {}
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
+def _get_feedback() -> str:
+    """Read retry feedback from ODP_AGENT_FEEDBACK env var."""
+    return os.getenv("ODP_AGENT_FEEDBACK", "")
+
+
+def _read_workspace_files(workspace: Path, max_files: int = 20, max_chars: int = 50_000) -> str:
+    """Read key source files from workspace for LLM context."""
+    extensions = {".py", ".ts", ".tsx", ".js", ".jsx", ".sql", ".toml", ".yaml", ".yml", ".md"}
+    skip_dirs = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build", "runtime"}
+    files: list[tuple[str, str]] = []
+    total = 0
+
+    for p in sorted(workspace.rglob("*")):
+        if not p.is_file():
+            continue
+        if any(sd in p.parts for sd in skip_dirs):
+            continue
+        if p.suffix.lower() not in extensions:
+            continue
+        try:
+            content = p.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            continue
+        rel = str(p.relative_to(workspace))
+        if total + len(content) > max_chars:
+            remaining = max_chars - total
+            if remaining > 200:
+                files.append((rel, content[:remaining] + "\n... (truncated)"))
+            break
+        files.append((rel, content))
+        total += len(content)
+        if len(files) >= max_files:
+            break
+
+    parts = []
+    for rel, content in files:
+        parts.append(f"=== {rel} ===\n{content}\n")
+    return "\n".join(parts)
+
+
+def _build_engineer_prompt(workspace: Path) -> tuple[str, list[dict[str, str]]]:
+    """Build the LLM prompt for code generation."""
+    ctx = _get_task_context()
+    title = ctx.get("title", "Unknown task")
+    description = ctx.get("description", "")
+    feedback = _get_feedback()
+
+    system = (
+        "You are an expert software engineer working on the ODP (Orchestrated Dev Platform) project. "
+        "Your job is to implement the requested changes. Output ONLY a unified diff that can be applied "
+        "with `git apply`. Do not include explanations outside the diff. The diff must be valid and complete.\n\n"
+        "Rules:\n"
+        "- Output a unified diff starting with --- and +++ lines\n"
+        "- Use correct file paths relative to the workspace root\n"
+        "- Include enough context lines (3+) for clean application\n"
+        "- For new files, use /dev/null as the --- path\n"
+        "- Do not introduce security vulnerabilities or hardcoded secrets\n"
+        "- Ensure code follows existing project conventions\n"
+    )
+
+    workspace_files = _read_workspace_files(workspace)
+    user_msg = f"## Task\n**{title}**\n\n{description}\n\n"
+    if workspace_files:
+        user_msg += f"## Current Workspace Files\n{workspace_files}\n\n"
+    if feedback:
+        user_msg += f"## Previous Attempt Feedback\nThe previous attempt failed. Fix the issues:\n{feedback}\n\n"
+    user_msg += "## Output\nProvide ONLY a unified diff to implement this task."
+
+    return system, [{"role": "user", "content": user_msg}]
+
+
+def _apply_diff(workspace: Path, diff_text: str, artifacts_dir: Path) -> tuple[bool, str]:
+    """Apply a unified diff to the workspace. Returns (success, log)."""
+    # Extract diff from LLM response (it might have markdown fences).
+    lines = diff_text.strip().splitlines()
+    diff_lines = []
+    in_diff = False
+    for line in lines:
+        if line.startswith("```"):
+            in_diff = not in_diff
+            continue
+        if line.startswith("diff --git") or line.startswith("---") or in_diff:
+            diff_lines.append(line)
+            in_diff = True
+        elif in_diff:
+            diff_lines.append(line)
+
+    # If no diff markers found, treat entire response as diff.
+    if not diff_lines:
+        diff_lines = lines
+
+    clean_diff = "\n".join(diff_lines) + "\n"
+    diff_path = artifacts_dir / "llm_generated.patch"
+    _write(diff_path, clean_diff)
+
+    result = _run(
+        ["git", "apply", "--check", str(diff_path)],
+        cwd=workspace, timeout_s=30,
+    )
+    if result.returncode != 0:
+        return False, f"git apply --check failed:\n{result.stdout}"
+
+    result = _run(
+        ["git", "apply", str(diff_path)],
+        cwd=workspace, timeout_s=30,
+    )
+    if result.returncode != 0:
+        return False, f"git apply failed:\n{result.stdout}"
+
+    return True, "diff applied successfully"
+
+
 def _engineer(workspace: Path, artifacts_dir: Path) -> AgentOutput:
     # Test-mode: deterministic + fast.
     if os.getenv("ODP_AGENT_TEST_MODE", "0") == "1":
@@ -52,7 +176,12 @@ def _engineer(workspace: Path, artifacts_dir: Path) -> AgentOutput:
             ],
         )
 
-    # Real mode: run local pytest and capture output.
+    # Check if LLM is available.
+    llm_provider = os.getenv("ODP_LLM_PROVIDER", "none").lower()
+    if llm_provider != "none" and os.getenv("ODP_LLM_API_KEY", ""):
+        return _engineer_with_llm(workspace, artifacts_dir)
+
+    # Fallback: deterministic mode (no LLM) — run local pytest and capture output.
     diff = _run(["git", "diff"], cwd=workspace, timeout_s=60)
     diff_uri = _write(artifacts_dir / "engineer_diff.patch", diff.stdout)
 
@@ -72,19 +201,93 @@ def _engineer(workspace: Path, artifacts_dir: Path) -> AgentOutput:
     )
 
 
+def _engineer_with_llm(workspace: Path, artifacts_dir: Path) -> AgentOutput:
+    """Engineer agent with LLM code generation."""
+    from services.orchestrator.odp_orchestrator.llm import call_llm
+
+    system, messages = _build_engineer_prompt(workspace)
+    logs: list[str] = ["engineer:llm-mode"]
+    artifacts: list[dict[str, Any]] = []
+
+    # Call LLM to generate code.
+    try:
+        loop = asyncio.new_event_loop()
+        resp = loop.run_until_complete(call_llm(system=system, messages=messages))
+        loop.close()
+    except Exception as e:
+        logs.append(f"llm_error={e}")
+        return AgentOutput(
+            ok=False, summary=f"engineer: LLM call failed: {e}",
+            artifacts=artifacts, logs=logs,
+            memory_entries=[{"type": "test_log", "payload": {"error": str(e)}}],
+        )
+
+    if resp is None:
+        logs.append("llm_response=None")
+        return AgentOutput(
+            ok=False, summary="engineer: LLM returned no response",
+            artifacts=artifacts, logs=logs,
+            memory_entries=[],
+        )
+
+    logs.append(f"llm_model={resp.model}")
+    logs.append(f"llm_tokens_in={resp.input_tokens}")
+    logs.append(f"llm_tokens_out={resp.output_tokens}")
+    logs.append(f"llm_latency_ms={resp.latency_ms}")
+    logs.append(f"llm_cost_usd={resp.cost_estimate:.4f}")
+
+    # Save raw LLM response.
+    llm_uri = _write(artifacts_dir / "llm_response.txt", resp.text)
+    artifacts.append({"type": "log", "uri": llm_uri})
+
+    # Apply the generated diff.
+    apply_ok, apply_log = _apply_diff(workspace, resp.text, artifacts_dir)
+    logs.append(f"apply_ok={apply_ok}")
+    if not apply_ok:
+        logs.append(f"apply_log={apply_log}")
+        return AgentOutput(
+            ok=False, summary=f"engineer: diff apply failed: {apply_log[:200]}",
+            artifacts=artifacts, logs=logs,
+            memory_entries=[{"type": "test_log", "payload": {"apply_ok": False, "log": apply_log}}],
+        )
+
+    # Capture the diff after apply.
+    diff = _run(["git", "diff"], cwd=workspace, timeout_s=60)
+    diff_uri = _write(artifacts_dir / "engineer_diff.patch", diff.stdout)
+    artifacts.append({"type": "diff", "uri": diff_uri})
+
+    # Run tests to validate.
+    tests = _run(["python", "-m", "pytest", "-q"], cwd=workspace, timeout_s=1200)
+    test_uri = _write(artifacts_dir / "engineer_pytest.txt", tests.stdout)
+    artifacts.append({"type": "log", "uri": test_uri})
+
+    ok = tests.returncode == 0
+    return AgentOutput(
+        ok=ok,
+        summary="engineer(llm): pytest " + ("passed" if ok else "failed"),
+        artifacts=artifacts,
+        logs=logs + [f"pytest_rc={tests.returncode}"],
+        memory_entries=[
+            {"type": "scope_of_work", "payload": {
+                "summary": f"LLM-generated code ({resp.model})",
+                "tokens": resp.input_tokens + resp.output_tokens,
+                "cost_usd": resp.cost_estimate,
+            }},
+            {"type": "test_log", "payload": {"command": "pytest -q", "returncode": tests.returncode}},
+            {"type": "verification_result", "payload": {"ok": ok, "summary": "engineer LLM unit tests"}},
+        ],
+    )
+
+
 def _compute_spec_hash(workspace: Path) -> str:
     # Must match orchestrator.compute_spec_hash().
     paths = [
         os.getenv("ODP_SPEC_INDEX", "docs/INDEX.md"),
-        os.getenv("ODP_SPEC_M1", "docs/MILESTONE_1.md"),
-        os.getenv("ODP_SPEC_M2", "docs/MILESTONE_2.md"),
-        os.getenv("ODP_SPEC_M3", "docs/MILESTONE_3.md"),
-        os.getenv("ODP_SPEC_M4", "docs/MILESTONE_4.md"),
-        os.getenv("ODP_SPEC_M5", "docs/MILESTONE_5.md"),
-        os.getenv("ODP_SPEC_M6", "docs/MILESTONE_6.md"),
-        os.getenv("ODP_SPEC_M7", "docs/MILESTONE_7.md"),
         os.getenv("ODP_UI_SPEC", "docs/UI_SPEC.md"),
     ]
+    for i in range(1, 20):
+        mp = os.getenv(f"ODP_SPEC_M{i}", f"docs/MILESTONE_{i}.md")
+        paths.append(mp)
     import hashlib
 
     h = hashlib.sha256()
