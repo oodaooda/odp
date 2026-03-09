@@ -1,0 +1,32 @@
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    // Dev server accessible from LAN
+    host: "0.0.0.0",
+    port: 5173,
+    proxy: {
+      // Proxy API and WebSocket calls to the FastAPI backend
+      "/projects": {
+        target: "http://127.0.0.1:8080",
+        changeOrigin: true,
+      },
+      "/ws": {
+        target: "ws://127.0.0.1:8080",
+        ws: true,
+      },
+      "/healthz": {
+        target: "http://127.0.0.1:8080",
+      },
+      "/metrics": {
+        target: "http://127.0.0.1:8080",
+      },
+    },
+  },
+  build: {
+    outDir: "dist",
+    emptyOutDir: true,
+  },
+});
