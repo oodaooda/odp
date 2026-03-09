@@ -1,11 +1,13 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import { listMemoryEvents } from "../api/client";
+import { usePollingRefresh } from "../hooks/useLiveRefresh";
 import type { MemoryEvent } from "../api/types";
 
 export default function AuditLog() {
   const { projectId } = useParams<{ projectId: string }>();
   const [events, setEvents] = useState<MemoryEvent[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
     if (!projectId) return;
@@ -13,13 +15,14 @@ export default function AuditLog() {
       events: [],
     }));
     setEvents(e.events ?? []);
+    setLoading(false);
   }, [projectId]);
 
   useEffect(() => {
     refresh();
-    const interval = setInterval(refresh, 5000);
-    return () => clearInterval(interval);
   }, [refresh]);
+
+  usePollingRefresh(refresh, 5000);
 
   return (
     <>
@@ -28,7 +31,9 @@ export default function AuditLog() {
       </div>
 
       <div className="card">
-        {events.length === 0 ? (
+        {loading ? (
+          <div className="loading-center"><div className="spinner" /></div>
+        ) : events.length === 0 ? (
           <p className="text-muted">No events recorded yet.</p>
         ) : (
           <table className="data-table">

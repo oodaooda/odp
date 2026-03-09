@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { listTasks, listMemoryEvents } from "../api/client";
+import { usePollingRefresh } from "../hooks/useLiveRefresh";
 import type { Task, GateDecision, MemoryEvent } from "../api/types";
 import StateTimeline from "../components/StateTimeline";
 
@@ -11,8 +12,9 @@ export default function GateEvidence() {
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
-  const [_events, setEvents] = useState<MemoryEvent[]>([]);
+  const [_events, _setEvents] = useState<MemoryEvent[]>([]);
   const [selectedEvidence, setSelectedEvidence] = useState<GateDecision | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
     if (!projectId) return;
@@ -28,20 +30,29 @@ export default function GateEvidence() {
       const e = await listMemoryEvents(projectId, target.task_id).catch(() => ({
         events: [],
       }));
-      setEvents(e.events ?? []);
+      _setEvents(e.events ?? []);
       if (!selectedEvidence && (target.gate_decisions ?? []).length > 0) {
         setSelectedEvidence(target.gate_decisions[0]);
       }
     }
+    setLoading(false);
   }, [projectId, taskIdParam, selectedEvidence]);
 
   useEffect(() => {
     refresh();
-    const interval = setInterval(refresh, 5000);
-    return () => clearInterval(interval);
   }, [refresh]);
 
+  usePollingRefresh(refresh, 5000);
+
   const gates = selectedTask?.gate_decisions ?? [];
+
+  if (loading) {
+    return (
+      <div className="loading-center">
+        <div className="spinner" />
+      </div>
+    );
+  }
 
   return (
     <>
