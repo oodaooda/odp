@@ -422,6 +422,31 @@ def create_app() -> FastAPI:
         await bus.emit(project_id, task_id, "artifact_uploaded", {"uri": out, "filename": file.filename})
         return {"ok": True, "uri": out}
 
+    @app.websocket("/ws/projects/{project_id}")
+    async def ws_project(websocket: WebSocket, project_id: UUID) -> None:
+        """Project-level WebSocket: broadcasts all task events for the project."""
+        await websocket.accept()
+        pubsub = redis.pubsub()
+        await pubsub.subscribe(bus.project_channel(project_id))
+        try:
+            while True:
+                msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+                if msg is None:
+                    await asyncio.sleep(0.05)
+                    continue
+                data = msg.get("data")
+                if isinstance(data, bytes):
+                    data = data.decode("utf-8")
+                await websocket.send_text(str(data))
+        except WebSocketDisconnect:
+            return
+        finally:
+            try:
+                await pubsub.unsubscribe(bus.project_channel(project_id))
+                await pubsub.aclose()
+            except Exception:
+                pass
+
     @app.websocket("/ws/projects/{project_id}/tasks/{task_id}")
     async def ws_task(websocket: WebSocket, project_id: UUID, task_id: UUID, since: int = 0) -> None:
         await websocket.accept()

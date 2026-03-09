@@ -1,4 +1,5 @@
 import { NavLink, Outlet, useParams } from "react-router-dom";
+import { useProjectSocket } from "../hooks/useProjectSocket";
 
 const NAV_ITEMS = [
   { label: "Dashboard", path: "" },
@@ -13,6 +14,7 @@ const NAV_ITEMS = [
 export default function Layout() {
   const { projectId } = useParams();
   const base = `/projects/${projectId}`;
+  const { connected } = useProjectSocket(projectId);
 
   return (
     <div className="app-layout">
@@ -20,6 +22,10 @@ export default function Layout() {
         <div className="sidebar-brand">
           <h1>ODP</h1>
           <p>Orchestrated Dev Platform</p>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, fontSize: 11 }}>
+            <span className={`ws-indicator ${connected ? "connected" : "disconnected"}`} />
+            <span style={{ color: "var(--text-muted)" }}>{connected ? "Live" : "Polling"}</span>
+          </div>
         </div>
         {NAV_ITEMS.map((item) => (
           <NavLink

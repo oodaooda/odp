@@ -34,11 +34,8 @@ export function useProjectSocket(projectId: string | undefined) {
     const host = import.meta.env.VITE_API_URL
       ? new URL(import.meta.env.VITE_API_URL).host
       : window.location.host;
-    // Use a sentinel task ID for project-wide listening.
-    // The backend streams events for the given task; we use "00000000..." as a
-    // convention. If the backend doesn't support project-level WS yet, this
-    // still connects and we fall back to polling.
-    const url = `${protocol}//${host}/ws/projects/${projectId}/tasks/00000000-0000-0000-0000-000000000000?since=0`;
+    // Project-level WebSocket endpoint — broadcasts all task events.
+    const url = `${protocol}//${host}/ws/projects/${projectId}`;
 
     const ws = new WebSocket(url);
     wsRef.current = ws;

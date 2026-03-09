@@ -104,6 +104,13 @@ export const listArtifacts = (projectId: string, taskId: string) =>
     `/projects/${projectId}/tasks/${taskId}/artifacts`
   );
 
+/* ── Memory Search ── */
+
+export const searchMemory = (projectId: string, query: string, limit = 20) =>
+  api<{ events: MemoryEvent[] }>(
+    `/projects/${projectId}/memory-events?q=${encodeURIComponent(query)}&limit=${limit}`
+  );
+
 /* ── Demo / Admin ── */
 
 export const seedDemo = (projectId: string) =>

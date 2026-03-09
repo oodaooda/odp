@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { listTasks, listChat, sendChat, seedDemo, createTask } from "../api/client";
 import { usePollingRefresh } from "../hooks/useLiveRefresh";
+import { useProjectSocket } from "../hooks/useProjectSocket";
 import { useToast } from "../components/Toast";
 import type { Task, ChatMessage } from "../api/types";
 
@@ -40,8 +41,12 @@ export default function Dashboard() {
     refresh();
   }, [refresh]);
 
-  // 5s polling (dashboard has no single task for WS)
-  usePollingRefresh(refresh, 5000);
+  // Project-level WebSocket with 10s polling fallback.
+  const { connected: wsConnected, subscribe } = useProjectSocket(projectId);
+  useEffect(() => {
+    return subscribe(() => refresh());
+  }, [subscribe, refresh]);
+  usePollingRefresh(refresh, wsConnected ? 30_000 : 5_000);
 
   const handleSendChat = async () => {
     if (!chatInput.trim() || !projectId) return;

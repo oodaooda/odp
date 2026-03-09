@@ -1,9 +1,9 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams } from "react-router-dom";
-import { getTask, listMemoryEvents, listArtifacts } from "../api/client";
+import { getTask, listMemoryEvents, listArtifacts, listAgentMemory, promoteMemory, resumeTasks } from "../api/client";
 import { useLiveRefresh } from "../hooks/useLiveRefresh";
 import { useToast } from "../components/Toast";
-import type { Task, MemoryEvent, Artifact } from "../api/types";
+import type { Task, MemoryEvent, Artifact, AgentMemory } from "../api/types";
 import StateTimeline from "../components/StateTimeline";
 
 export default function TaskDetail() {
@@ -15,17 +15,19 @@ export default function TaskDetail() {
   const [task, setTask] = useState<Task | null>(null);
   const [events, setEvents] = useState<MemoryEvent[]>([]);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
+  const [pendingMemory, setPendingMemory] = useState<AgentMemory[]>([]);
   const [prevState, setPrevState] = useState<string | null>(null);
+  const [expandedArtifact, setExpandedArtifact] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!projectId || !taskId) return;
-    const [t, e, a] = await Promise.all([
+    const [t, e, a, m] = await Promise.all([
       getTask(projectId, taskId).catch(() => null),
       listMemoryEvents(projectId, taskId).catch(() => ({ events: [] })),
       listArtifacts(projectId, taskId).catch(() => ({ artifacts: [] })),
+      listAgentMemory(projectId, "pending").catch(() => ({ agent_memory: [] })),
     ]);
     if (t) {
-      // Toast on state change
       if (prevState && t.state !== prevState) {
         toast(`Task state: ${prevState} → ${t.state}`, t.state === "COMMIT" ? "success" : t.state === "ROLLBACK" ? "error" : "info");
       }
@@ -34,14 +36,38 @@ export default function TaskDetail() {
     }
     setEvents(e.events ?? []);
     setArtifacts(a.artifacts ?? []);
+    // Filter pending memory to this task.
+    const allPending = m.agent_memory ?? [];
+    setPendingMemory(allPending.filter((pm) => pm.task_id === taskId));
   }, [projectId, taskId, prevState, toast]);
 
   useEffect(() => {
     refresh();
   }, [refresh]);
 
-  // WebSocket-driven live refresh with 30s polling fallback
   const { wsConnected } = useLiveRefresh(projectId, taskId, refresh);
+
+  const handlePromote = async (memoryId: string, decision: "approved" | "rejected") => {
+    if (!projectId) return;
+    try {
+      await promoteMemory(projectId, memoryId, decision);
+      toast(`Memory ${decision}`, decision === "approved" ? "success" : "info");
+      refresh();
+    } catch {
+      toast("Failed to promote memory", "error");
+    }
+  };
+
+  const handleResume = async () => {
+    if (!projectId) return;
+    try {
+      await resumeTasks(projectId);
+      toast("Tasks resumed", "success");
+      refresh();
+    } catch {
+      toast("Failed to resume tasks", "error");
+    }
+  };
 
   if (!task) {
     return (
@@ -51,7 +77,7 @@ export default function TaskDetail() {
     );
   }
 
-  // Derive spec refs from task title / events
+  const isRunning = ["INIT", "DISPATCH", "COLLECT", "VALIDATE"].includes(task.state);
   const specRefs = ["01_PRD.md", "02_SRD.md", "04_ICD.md", "06_VV_PLAN.md"];
 
   return (
@@ -64,7 +90,14 @@ export default function TaskDetail() {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <span className={`ws-indicator ${wsConnected ? "connected" : "disconnected"}`} title={wsConnected ? "WebSocket connected" : "WebSocket disconnected"} />
-          <button className="btn btn-primary">New Task +</button>
+          {!isRunning && task.state !== "COMMIT" && (
+            <button className="btn btn-primary" onClick={handleResume}>
+              Re-run Task
+            </button>
+          )}
+          {isRunning && (
+            <span className="status status-active">Running...</span>
+          )}
         </div>
       </div>
 
@@ -81,9 +114,7 @@ export default function TaskDetail() {
             <div>
               <span className="text-muted text-sm">status: </span>
               <span className={`status status-${task.state}`}>
-                {["INIT", "DISPATCH", "COLLECT", "VALIDATE"].includes(task.state)
-                  ? "running"
-                  : task.state.toLowerCase()}
+                {isRunning ? "running" : task.state.toLowerCase()}
               </span>
             </div>
             <div>
@@ -102,6 +133,14 @@ export default function TaskDetail() {
               <div>
                 <span className="text-muted text-sm">title: </span>
                 {task.title}
+              </div>
+            )}
+            {task.description && (
+              <div>
+                <span className="text-muted text-sm">description: </span>
+                <div style={{ marginTop: 4, whiteSpace: "pre-wrap", fontSize: 13, color: "var(--text-secondary)" }}>
+                  {task.description}
+                </div>
               </div>
             )}
           </div>
@@ -125,31 +164,29 @@ export default function TaskDetail() {
         <div className="card">
           <h3>Agent Results (Agent Result schema)</h3>
           {(task.agent_results ?? []).length === 0 ? (
-            <p className="text-muted text-sm">No agent results yet.</p>
+            <p className="text-muted text-sm">
+              {isRunning ? "Agents running..." : "No agent results yet."}
+            </p>
           ) : (
             <table className="data-table">
               <thead>
                 <tr>
                   <th>Role</th>
                   <th>Status</th>
-                  <th>Artifacts</th>
+                  <th>Summary</th>
                 </tr>
               </thead>
               <tbody>
                 {(task.agent_results ?? []).map((r, i) => (
                   <tr key={i}>
-                    <td>{r.agent_role}</td>
+                    <td style={{ textTransform: "capitalize" }}>{r.agent_role}</td>
                     <td>
-                      <span
-                        className={`status ${
-                          r.ok ? "status-passed" : "status-failed"
-                        }`}
-                      >
+                      <span className={`status ${r.ok ? "status-passed" : "status-failed"}`}>
                         {r.ok ? "passed" : "failed"}
                       </span>
                     </td>
-                    <td className="text-muted">
-                      artifacts: {r.artifacts.length > 0 ? r.artifacts.join(", ") : "-"}
+                    <td className="text-muted text-sm">
+                      {r.summary || `artifacts: ${r.artifacts.length}`}
                     </td>
                   </tr>
                 ))}
@@ -168,8 +205,9 @@ export default function TaskDetail() {
                 {String((e.payload as Record<string, string>).to ?? "?")}
               </div>
             ))}
-          {events.filter((e) => e.event_type === "state_transition").length ===
-            0 && <p className="text-muted text-sm">No transitions yet.</p>}
+          {events.filter((e) => e.event_type === "state_transition").length === 0 && (
+            <p className="text-muted text-sm">No transitions yet.</p>
+          )}
         </div>
       </div>
 
@@ -178,8 +216,57 @@ export default function TaskDetail() {
         <StateTimeline current={task.state} />
       </div>
 
+      {/* Pending Agent Memory */}
+      {pendingMemory.length > 0 && (
+        <div className="card mb-20">
+          <h3>Pending Agent Memory</h3>
+          <p className="text-muted text-sm" style={{ marginBottom: 12 }}>
+            Agents proposed these memory entries. Approve to persist or reject to discard.
+          </p>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Agent</th>
+                <th>Type</th>
+                <th>Content</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pendingMemory.map((pm) => (
+                <tr key={pm.id}>
+                  <td style={{ textTransform: "capitalize" }}>{pm.agent_role}</td>
+                  <td>{pm.memory_type}</td>
+                  <td className="text-sm" style={{ maxWidth: 400, overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {pm.content.slice(0, 200)}
+                  </td>
+                  <td>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      <button
+                        className="btn btn-sm"
+                        style={{ background: "var(--accent-green)", color: "#000", fontSize: 12, padding: "2px 8px" }}
+                        onClick={() => handlePromote(pm.id, "approved")}
+                      >
+                        Approve
+                      </button>
+                      <button
+                        className="btn btn-sm"
+                        style={{ background: "var(--accent-red)", color: "#fff", fontSize: 12, padding: "2px 8px" }}
+                        onClick={() => handlePromote(pm.id, "rejected")}
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {/* Audit Log */}
-      <div className="card">
+      <div className="card mb-20">
         <h3>Audit Log</h3>
         {events.length === 0 ? (
           <p className="text-muted text-sm">No events yet.</p>
@@ -225,7 +312,7 @@ export default function TaskDetail() {
 
       {/* Artifacts */}
       {artifacts.length > 0 && (
-        <div className="card" style={{ marginTop: 20 }}>
+        <div className="card">
           <h3>Artifacts</h3>
           <table className="data-table">
             <thead>
@@ -233,20 +320,39 @@ export default function TaskDetail() {
                 <th>Type</th>
                 <th>URI</th>
                 <th>Created</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {artifacts.map((a) => (
                 <tr key={a.id}>
                   <td>{a.artifact_type}</td>
-                  <td className="mono">{a.uri}</td>
+                  <td className="mono text-sm" style={{ maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {a.uri.split("/").pop() || a.uri}
+                  </td>
                   <td className="text-muted">
                     {new Date(a.created_at).toISOString().slice(0, 19)}
+                  </td>
+                  <td>
+                    <button
+                      className="btn btn-sm"
+                      style={{ fontSize: 12, padding: "2px 8px" }}
+                      onClick={() => setExpandedArtifact(expandedArtifact === a.id ? null : a.id)}
+                    >
+                      {expandedArtifact === a.id ? "Hide" : "View"}
+                    </button>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          {expandedArtifact && (
+            <div style={{ marginTop: 12, padding: 12, background: "var(--bg-input)", borderRadius: "var(--radius-sm)", maxHeight: 300, overflowY: "auto" }}>
+              <pre style={{ fontSize: 12, whiteSpace: "pre-wrap", margin: 0, color: "var(--text-secondary)" }}>
+                {artifacts.find((a) => a.id === expandedArtifact)?.uri ?? "No content available"}
+              </pre>
+            </div>
+          )}
         </div>
       )}
     </>
