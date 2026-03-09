@@ -27,15 +27,12 @@ def compute_spec_hash() -> str:
     # Minimal spec hash: include the index + milestone specs + UI spec. Used for drift detection.
     paths = [
         os.getenv("ODP_SPEC_INDEX", "docs/INDEX.md"),
-        os.getenv("ODP_SPEC_M1", "docs/MILESTONE_1.md"),
-        os.getenv("ODP_SPEC_M2", "docs/MILESTONE_2.md"),
-        os.getenv("ODP_SPEC_M3", "docs/MILESTONE_3.md"),
-        os.getenv("ODP_SPEC_M4", "docs/MILESTONE_4.md"),
-        os.getenv("ODP_SPEC_M5", "docs/MILESTONE_5.md"),
-        os.getenv("ODP_SPEC_M6", "docs/MILESTONE_6.md"),
-        os.getenv("ODP_SPEC_M7", "docs/MILESTONE_7.md"),
         os.getenv("ODP_UI_SPEC", "docs/UI_SPEC.md"),
     ]
+    # Dynamically include all milestone docs that exist.
+    for i in range(1, 20):
+        mp = os.getenv(f"ODP_SPEC_M{i}", f"docs/MILESTONE_{i}.md")
+        paths.append(mp)
     h = hashlib.sha256()
     for p in paths:
         if os.path.exists(p):
