@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { listTasks, listChat, sendChat, seedDemo, createTask } from "../api/client";
+import { useToast } from "../components/Toast";
 import type { Task, ChatMessage } from "../api/types";
 
 function timeAgo(ms: number): string {
@@ -14,11 +15,13 @@ function timeAgo(ms: number): string {
 export default function Dashboard() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [showNewTask, setShowNewTask] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
     if (!projectId) return;
@@ -28,6 +31,7 @@ export default function Dashboard() {
     ]);
     setTasks(Array.isArray(t) ? t : []);
     setChat(c.messages ?? []);
+    setLoading(false);
   }, [projectId]);
 
   useEffect(() => {
@@ -45,19 +49,28 @@ export default function Dashboard() {
 
   const handleSeedDemo = async () => {
     if (!projectId) return;
-    await seedDemo(projectId);
-    refresh();
+    try {
+      await seedDemo(projectId);
+      toast("Demo data seeded", "success");
+      refresh();
+    } catch {
+      toast("Failed to seed demo data", "error");
+    }
   };
 
   const handleCreateTask = async () => {
     if (!newTaskTitle.trim() || !projectId) return;
-    await createTask(projectId, newTaskTitle.trim());
-    setNewTaskTitle("");
-    setShowNewTask(false);
-    refresh();
+    try {
+      await createTask(projectId, newTaskTitle.trim());
+      toast("Task created", "success");
+      setNewTaskTitle("");
+      setShowNewTask(false);
+      refresh();
+    } catch {
+      toast("Failed to create task", "error");
+    }
   };
 
-  // KPI calculations
   const activeTasks = tasks.filter((t) =>
     ["INIT", "DISPATCH", "COLLECT", "VALIDATE"].includes(t.state)
   ).length;
@@ -73,6 +86,14 @@ export default function Dashboard() {
   const lastRun = tasks.length > 0
     ? timeAgo(Math.max(...tasks.map((t) => t.updated_at_ms)))
     : "—";
+
+  if (loading) {
+    return (
+      <div className="loading-center">
+        <div className="spinner" />
+      </div>
+    );
+  }
 
   return (
     <>
@@ -92,7 +113,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* New Task Modal */}
+      {/* New Task input */}
       {showNewTask && (
         <div className="card mb-20" style={{ display: "flex", gap: 8 }}>
           <input
