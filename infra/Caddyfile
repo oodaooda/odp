@@ -1,0 +1,47 @@
+# ODP reverse proxy with automatic TLS
+# Usage: caddy run --config infra/Caddyfile
+#
+# Replace odp.example.com with your domain.
+# Caddy auto-provisions Let's Encrypt certificates.
+
+odp.example.com {
+    # API + WebSocket → FastAPI backend
+    reverse_proxy /projects/* localhost:8080
+    reverse_proxy /ws/*       localhost:8080
+    reverse_proxy /healthz    localhost:8080
+    reverse_proxy /metrics    localhost:8080
+
+    # Everything else → React SPA
+    root * /opt/odp/apps/web/dist
+    try_files {path} /index.html
+    file_server
+
+    # Rate limiting
+    rate_limit {
+        zone api {
+            key    {remote_host}
+            events 100
+            window 1m
+        }
+    }
+
+    # Request size limit (50MB for artifact uploads)
+    request_body {
+        max_size 50MB
+    }
+
+    # Security headers
+    header {
+        X-Content-Type-Options   nosniff
+        X-Frame-Options          DENY
+        Referrer-Policy          strict-origin-when-cross-origin
+        Strict-Transport-Security "max-age=63072000; includeSubDomains"
+    }
+
+    log {
+        output file /var/log/caddy/odp-access.log {
+            roll_size 100mb
+            roll_keep 5
+        }
+    }
+}

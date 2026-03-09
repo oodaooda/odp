@@ -10,14 +10,26 @@ import type {
 
 const BASE = import.meta.env.VITE_API_URL ?? "";
 
+function authHeaders(): Record<string, string> {
+  const token = localStorage.getItem("odp_token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...authHeaders(),
       ...init?.headers,
     },
   });
+  if (res.status === 401) {
+    // Token expired or invalid — clear and reload to show login.
+    localStorage.removeItem("odp_token");
+    window.location.reload();
+    throw new Error("Unauthorized");
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
     throw new Error(`API ${res.status}: ${text}`);

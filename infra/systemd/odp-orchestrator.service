@@ -1,0 +1,37 @@
+[Unit]
+Description=ODP Orchestrator API
+After=network.target redis.service postgresql.service
+Requires=redis.service postgresql.service
+
+[Service]
+Type=simple
+User=odp
+Group=odp
+WorkingDirectory=/opt/odp
+ExecStart=/opt/odp/venv/bin/python -m services.orchestrator.odp_orchestrator
+Restart=on-failure
+RestartSec=5
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+# Environment
+EnvironmentFile=/opt/odp/.env
+Environment=ODP_HOST=0.0.0.0
+Environment=ODP_PORT=8080
+Environment=ODP_AUTO_MIGRATE=1
+Environment=PYTHONUNBUFFERED=1
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/odp/runtime
+PrivateTmp=yes
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=odp-orchestrator
+
+[Install]
+WantedBy=multi-user.target

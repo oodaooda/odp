@@ -1,0 +1,16 @@
+[Unit]
+Description=Redis for ODP
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/redis-server --bind 127.0.0.1 --port 6379 --maxmemory 512mb --maxmemory-policy allkeys-lru
+Restart=on-failure
+RestartSec=3
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=odp-redis
+
+[Install]
+WantedBy=multi-user.target
