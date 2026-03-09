@@ -1,49 +1,59 @@
-# Milestone 11: Agent Orchestration End-to-End (Planned)
+# Milestone 11: LLM Agent Integration
 
 ## Goal
-Wire the UI to the full agent execution flow so users can submit a task, watch agents spawn, observe gate pass/fail decisions, and see commit/rollback outcomes — all through the browser.
+Wire an LLM (Claude or OpenAI) into the engineer agent so it can **actually generate code** from task descriptions. This is the core capability that transforms ODP from a deterministic test runner into an autonomous software engineering platform.
+
+Currently, the engineer agent just runs `git diff` and `pytest` on an unchanged workspace. After M11, it will:
+1. Read the task description and spec references
+2. Call an LLM to generate code changes
+3. Apply the changes to its isolated worktree
+4. Run tests to validate
+5. Retry with error feedback if tests fail
 
 ## Scope
 
-### 1) Task execution flow in UI
-- [ ] "Run Task" button triggers orchestrator dispatch
-- [ ] Live agent spawn indicators (engineer/qa/security cards update in real-time)
-- [ ] Gate decisions stream into TaskDetail and GateEvidence as they happen
-- [ ] Commit/rollback outcome displayed with toast + state timeline update
+### 1) LLM client module
+- [ ] New `services/orchestrator/odp_orchestrator/llm.py` — thin wrapper supporting Claude (Anthropic SDK) and OpenAI
+- [ ] Config-gated: `ODP_LLM_PROVIDER=anthropic|openai`, `ODP_LLM_MODEL`, `ODP_LLM_API_KEY`
+- [ ] Disabled by default (agents fall back to current deterministic behavior)
+- [ ] Token/cost tracking per call
 
-### 2) Agent memory promotion UI
-- [ ] Pending memory entries listed with approve/reject buttons
-- [ ] Promotion decisions recorded and displayed in audit log
-- [ ] Toast notification on approve/reject
+### 2) Engineer agent — code generation
+- [ ] Agent receives task title, description, and spec refs as context
+- [ ] Calls LLM with: task prompt + relevant file contents from workspace
+- [ ] Applies generated diff/code to the worktree
+- [ ] Runs `pytest -q` to validate
+- [ ] On test failure: feeds error output back to LLM for retry (max 3 attempts)
+- [ ] Returns final diff, test output, and generation logs as artifacts
 
-### 3) Artifact management
-- [ ] Artifact upload via drag-and-drop or file picker
-- [ ] Artifact download links in TaskDetail and GateEvidence
-- [ ] Inline preview for text artifacts (logs, diffs, reports)
+### 3) Task context passing
+- [ ] Orchestrator passes task metadata (title, spec_hash, spec file contents) to agent subprocess
+- [ ] Agent reads spec files from repo to build LLM context
+- [ ] Memory search (pgvector) provides relevant past decisions as context
 
-### 4) Memory search
-- [ ] Search bar on Dashboard or dedicated search page
-- [ ] Calls `/projects/{project_id}/memory/search` endpoint
-- [ ] Results displayed with artifact enrichment
+### 4) QA/Security agents — enhanced validation
+- [ ] QA agent: no LLM needed, but now validates that generated code matches spec intent (spec hash check already exists)
+- [ ] Security agent: scan generated diffs for secrets/vulnerabilities (already functional, just needs to run on real diffs)
 
-### 5) Project-level WebSocket
-- [ ] Backend: new WS endpoint for project-wide events (not task-specific)
-- [ ] Frontend: `useProjectSocket` drives Dashboard, Agents, AuditLog updates
-- [ ] Eliminate remaining polling on pages that can use WS
+### 5) Orchestrator retry loop
+- [ ] On engineer failure, orchestrator can re-dispatch with feedback from QA/security
+- [ ] Configurable max retries: `ODP_MAX_AGENT_RETRIES` (default 3)
+- [ ] Each retry logged as a memory event with the feedback context
 
 ## Non-goals
-- Auth/login UI (M12)
-- Deployment automation (M12)
-- Performance optimization
+- Multi-file refactoring across entire repos (single-task scope only)
+- Agent-to-agent direct communication (orchestrator mediates)
+- Fine-tuning or training models
 
 ## Deliverables
-- [ ] End-to-end task execution visible in UI
-- [ ] Agent memory promotion workflow functional
-- [ ] Artifact upload/download working
-- [ ] Memory search integrated
-- [ ] All tests pass
+- [ ] `llm.py` module with Claude + OpenAI support
+- [ ] Engineer agent generates real code from task descriptions
+- [ ] Test failure → LLM retry loop functional
+- [ ] All existing tests still pass (`ODP_AGENT_TEST_MODE=1` unchanged)
+- [ ] New integration test: create task → agent generates code → tests pass → commit
+- [ ] Documentation: `docs/LLM_INTEGRATION.md`
 
 ## Evidence required
-- Screenshots of task execution flow
-- `pytest -q` green
-- Demo video or walkthrough
+- Integration test passing with real LLM call
+- Artifact: generated diff from a sample task
+- `pytest -q` green (existing tests + new integration test)

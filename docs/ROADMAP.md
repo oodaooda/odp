@@ -1,25 +1,34 @@
 # ODP Roadmap
 
-This file is the high-level progress tracker (checkboxes). Keep it up to date as milestones land.
+This file is the high-level progress tracker. Keep it up to date as milestones land.
 
-## Milestones
+## Foundation (Complete)
 
-- [x] **M1** – Minimal orchestrator lifecycle + Redis schemas + WebSocket event stream + basic tests
-- [x] **M2** – Real agent execution (multi-process), isolated workspaces, evidence artifacts, local infra (Redis/Postgres)
-- [x] **M3** – Pending agent memory + promotion workflow + chat history API + basic retries
-- [x] **M4** – Chat compaction summary + vector index wiring stub (best-effort) + tests
-- [x] **M5** – Real embeddings (config-gated) + git workflow hardening + UI build-out
+- [x] **M1** – Orchestrator lifecycle + Redis schemas + WebSocket event stream + basic tests
+- [x] **M2** – Agent execution (multi-process), isolated workspaces, evidence artifacts, local infra
+- [x] **M3** – Agent memory + promotion workflow + chat history API + retries
+- [x] **M4** – Chat compaction + vector index wiring (best-effort) + tests
+- [x] **M5** – Embeddings (config-gated) + git workflow hardening + UI build-out
 - [x] **M6** – Retrieval (pgvector) + merge automation + UI for evidence/promotion
-- [x] **M7** – Production hardening (auth/RBAC, audit UI, deployment, observability, CI/CD)
+- [x] **M7** – Production hardening (auth/RBAC, audit UI, observability, CI/CD)
 - [x] **M8** – UI parity with dark-mode prototypes + live data bindings
+
+## Frontend Rebuild (Complete)
+
 - [x] **M9** – React SPA frontend (replaced embedded HTML with React + TypeScript + Vite)
-- [x] **M10** – Frontend polish & real-time (Agents/Specs/Settings pages, WebSocket live refresh, toasts, error boundary)
-- [ ] **M11** – Agent orchestration end-to-end (task execution flow, memory promotion, artifacts, search)
-- [ ] **M12** – Production deployment (auth UX, TLS, systemd, CI pipeline, frontend tests)
+- [x] **M10** – Frontend polish & real-time (all pages, WebSocket live refresh, toasts, error boundary)
 
-## Post-milestone backlog
+## AI & Integration (Planned)
 
-- [ ] Performance pass (orchestrator loop latency + WS throughput)
-- [ ] Project selector UI (multi-project support)
+- [ ] **M11** – LLM agent integration (Claude/OpenAI code generation, retry with feedback, task context)
+- [ ] **M12** – End-to-end orchestration UI (run tasks from browser, memory promotion, artifacts, search, project WS)
+- [ ] **M13** – Production hardening & deployment (auth UX, TLS, systemd, CI pipeline, frontend tests, bug fixes)
+- [ ] **M14** – Multi-project & GitHub integration (project selector, webhooks, PR creation, status checks)
+
+## Post-v1 Backlog
+
+- [ ] Multi-repo support (agent works across multiple repositories)
+- [ ] Agent-to-agent feedback (engineer receives QA/security feedback directly)
+- [ ] Custom agent roles (user-defined agents beyond engineer/qa/security)
 - [ ] Dark/light theme toggle
-- [ ] Responsive mobile layout improvements
+- [ ] Mobile-responsive layout

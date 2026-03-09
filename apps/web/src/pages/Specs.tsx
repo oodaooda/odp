@@ -25,9 +25,11 @@ const MILESTONES = [
   { id: "M7", title: "Production Hardening", status: "complete" },
   { id: "M8", title: "UI Parity with Prototypes", status: "complete" },
   { id: "M9", title: "React SPA Frontend", status: "complete" },
-  { id: "M10", title: "Frontend Polish & Real-Time", status: "in-progress" },
-  { id: "M11", title: "Agent Orchestration End-to-End", status: "planned" },
-  { id: "M12", title: "Production Deployment", status: "planned" },
+  { id: "M10", title: "Frontend Polish & Real-Time", status: "complete" },
+  { id: "M11", title: "LLM Agent Integration", status: "planned" },
+  { id: "M12", title: "End-to-End Orchestration UI", status: "planned" },
+  { id: "M13", title: "Production Hardening & Deployment", status: "planned" },
+  { id: "M14", title: "Multi-Project & GitHub Integration", status: "planned" },
 ];
 
 export default function Specs() {
