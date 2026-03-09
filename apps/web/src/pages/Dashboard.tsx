@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { listTasks, listChat, sendChat, seedDemo, createTask } from "../api/client";
+import { usePollingRefresh } from "../hooks/useLiveRefresh";
 import { useToast } from "../components/Toast";
 import type { Task, ChatMessage } from "../api/types";
 
@@ -36,9 +37,10 @@ export default function Dashboard() {
 
   useEffect(() => {
     refresh();
-    const interval = setInterval(refresh, 5000);
-    return () => clearInterval(interval);
   }, [refresh]);
+
+  // 5s polling (dashboard has no single task for WS)
+  usePollingRefresh(refresh, 5000);
 
   const handleSendChat = async () => {
     if (!chatInput.trim() || !projectId) return;

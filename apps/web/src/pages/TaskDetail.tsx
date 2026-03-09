@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import { getTask, listMemoryEvents, listArtifacts } from "../api/client";
-import { useTaskWebSocket } from "../hooks/useWebSocket";
+import { useLiveRefresh } from "../hooks/useLiveRefresh";
+import { useToast } from "../components/Toast";
 import type { Task, MemoryEvent, Artifact } from "../api/types";
 import StateTimeline from "../components/StateTimeline";
 
@@ -10,9 +11,11 @@ export default function TaskDetail() {
     projectId: string;
     taskId: string;
   }>();
+  const { toast } = useToast();
   const [task, setTask] = useState<Task | null>(null);
   const [events, setEvents] = useState<MemoryEvent[]>([]);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
+  const [prevState, setPrevState] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!projectId || !taskId) return;
@@ -21,22 +24,31 @@ export default function TaskDetail() {
       listMemoryEvents(projectId, taskId).catch(() => ({ events: [] })),
       listArtifacts(projectId, taskId).catch(() => ({ artifacts: [] })),
     ]);
-    if (t) setTask(t);
+    if (t) {
+      // Toast on state change
+      if (prevState && t.state !== prevState) {
+        toast(`Task state: ${prevState} → ${t.state}`, t.state === "COMMIT" ? "success" : t.state === "ROLLBACK" ? "error" : "info");
+      }
+      setPrevState(t.state);
+      setTask(t);
+    }
     setEvents(e.events ?? []);
     setArtifacts(a.artifacts ?? []);
-  }, [projectId, taskId]);
+  }, [projectId, taskId, prevState, toast]);
 
   useEffect(() => {
     refresh();
   }, [refresh]);
 
-  // WebSocket for live updates
-  useTaskWebSocket(projectId, taskId, () => {
-    refresh();
-  });
+  // WebSocket-driven live refresh with 30s polling fallback
+  const { wsConnected } = useLiveRefresh(projectId, taskId, refresh);
 
   if (!task) {
-    return <p className="text-muted">Loading task...</p>;
+    return (
+      <div className="loading-center">
+        <div className="spinner" />
+      </div>
+    );
   }
 
   // Derive spec refs from task title / events
@@ -50,7 +62,10 @@ export default function TaskDetail() {
           <h2>Task Detail: {task.task_id.slice(0, 12)}</h2>
           <span className="subtitle">Project: Orchestrated Dev Platform</span>
         </div>
-        <button className="btn btn-primary">New Task +</button>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <span className={`ws-indicator ${wsConnected ? "connected" : "disconnected"}`} title={wsConnected ? "WebSocket connected" : "WebSocket disconnected"} />
+          <button className="btn btn-primary">New Task +</button>
+        </div>
       </div>
 
       {/* Main grid */}
