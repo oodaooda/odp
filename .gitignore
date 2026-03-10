@@ -18,6 +18,7 @@ runtime/
 # Secrets and environment
 .env
 .env.*
+!.env.example
 *.pem
 *.key
 
