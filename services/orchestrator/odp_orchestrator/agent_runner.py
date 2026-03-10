@@ -98,9 +98,16 @@ async def run_agent(
     art_dir.mkdir(parents=True, exist_ok=True)
 
     # Build agent env: inherit parent but strip secrets that agents should not see.
-    _SECRET_PREFIXES = ("ODP_API_TOKEN", "ODP_RBAC_", "ODP_GITHUB_TOKEN", "ODP_GITHUB_WEBHOOK_SECRET", "ODP_DATABASE_URL")
+    _SECRET_PREFIXES = ("ODP_API_TOKEN", "ODP_RBAC_", "ODP_GITHUB_TOKEN", "ODP_GITHUB_WEBHOOK_SECRET", "ODP_DATABASE_URL", "ODP_ORCH_LLM_")
     env = {k: v for k, v in os.environ.items() if not any(k.startswith(p) for p in _SECRET_PREFIXES)}
     env.setdefault("PYTHONUNBUFFERED", "1")
+
+    # Dual-provider support: map ODP_AGENT_LLM_* → ODP_LLM_* for agent subprocess.
+    # This lets agents use a different LLM provider (e.g., OpenAI) than the orchestrator (e.g., Anthropic).
+    for suffix in ("PROVIDER", "API_KEY", "MODEL", "MAX_TOKENS"):
+        agent_val = os.getenv(f"ODP_AGENT_LLM_{suffix}")
+        if agent_val:
+            env[f"ODP_LLM_{suffix}"] = agent_val
     if expected_spec_hash:
         env["ODP_EXPECTED_SPEC_HASH"] = expected_spec_hash
 

@@ -1,7 +1,12 @@
 """Thin LLM client supporting Anthropic (Claude) and OpenAI.
 
-Config-gated via ODP_LLM_PROVIDER env var. When set to 'none' (default),
-all calls return None and agents fall back to deterministic behavior.
+Supports dual-provider config:
+  - ODP_LLM_*          — default (used by agents in subprocess)
+  - ODP_ORCH_LLM_*     — orchestrator-specific (Claude for decisions)
+  - ODP_AGENT_LLM_*    — agent-specific (OpenAI for code gen)
+
+When provider is 'none' (default), all calls return None and agents
+fall back to deterministic behavior.
 """
 from __future__ import annotations
 
@@ -45,21 +50,28 @@ async def call_llm(
     system: str,
     messages: list[dict[str, str]],
     max_tokens: int | None = None,
+    env_prefix: str = "ODP_LLM",
 ) -> LLMResponse | None:
     """Call the configured LLM provider.
 
+    Args:
+        env_prefix: Env var prefix to read config from. Defaults to "ODP_LLM".
+                    Use "ODP_ORCH_LLM" for orchestrator calls.
+                    Agents in subprocess use "ODP_LLM" (mapped from ODP_AGENT_LLM_*).
+
     Returns None if provider is 'none' or not configured.
     """
-    provider = os.getenv("ODP_LLM_PROVIDER", "none").lower()
+    provider = os.getenv(f"{env_prefix}_PROVIDER", "none").lower()
     if provider == "none":
         return None
 
-    model = os.getenv("ODP_LLM_MODEL", "claude-sonnet-4-6")
-    api_key = os.getenv("ODP_LLM_API_KEY", "")
-    max_tok = max_tokens or int(os.getenv("ODP_LLM_MAX_TOKENS", "4096"))
+    default_model = "claude-sonnet-4-6" if provider == "anthropic" else "gpt-4o"
+    model = os.getenv(f"{env_prefix}_MODEL", default_model)
+    api_key = os.getenv(f"{env_prefix}_API_KEY", "")
+    max_tok = max_tokens or int(os.getenv(f"{env_prefix}_MAX_TOKENS", "4096"))
 
     if not api_key:
-        logger.warning("ODP_LLM_API_KEY not set; skipping LLM call")
+        logger.warning("%s_API_KEY not set; skipping LLM call", env_prefix)
         return None
 
     t0 = time.monotonic()
