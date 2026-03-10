@@ -28,7 +28,7 @@ def test_m12_project_socket_hook_uses_new_endpoint():
     """useProjectSocket must connect to /ws/projects/{id} (not sentinel task)."""
     hook_path = WEB_SRC / "hooks" / "useProjectSocket.ts"
     content = hook_path.read_text()
-    assert "/ws/projects/${projectId}`" in content, "Hook must use project-level WS URL"
+    assert "/ws/projects/${projectId}" in content, "Hook must use project-level WS URL"
     assert "00000000" not in content, "Hook should not use sentinel task ID anymore"
 
 

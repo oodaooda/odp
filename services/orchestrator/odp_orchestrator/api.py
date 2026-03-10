@@ -415,21 +415,59 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="artifact not found")
         return FileResponse(str(resolved))
 
+    MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
+
     @app.post("/projects/{project_id}/tasks/{task_id}/artifacts")
     async def upload_artifact(project_id: UUID, task_id: UUID, file: UploadFile = File(...)) -> dict[str, Any]:
-        base = os.getenv("ODP_ARTIFACT_DIR", "runtime/artifacts")
-        path = os.path.join(base, str(project_id), str(task_id), "uploads")
-        os.makedirs(path, exist_ok=True)
-        out = os.path.join(path, file.filename)
+        # Sanitize filename: strip path components, reject suspicious names.
+        raw_name = file.filename or "upload"
+        safe_name = Path(raw_name).name  # strip directory components
+        if not safe_name or safe_name.startswith(".") or "/" in raw_name or "\\" in raw_name:
+            from uuid import uuid4 as _uuid4
+            safe_name = f"{_uuid4().hex[:12]}.bin"
+
+        base = Path(os.getenv("ODP_ARTIFACT_DIR", "runtime/artifacts")).resolve()
+        upload_dir = base / str(project_id) / str(task_id) / "uploads"
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        out = (upload_dir / safe_name).resolve()
+
+        # Verify resolved path stays within upload dir.
+        if not str(out).startswith(str(upload_dir)):
+            raise HTTPException(status_code=400, detail="invalid filename")
+
+        # Stream with size limit.
+        total = 0
         with open(out, "wb") as f:
-            f.write(await file.read())
-        await memory.record_artifact(project_id=project_id, task_id=task_id, type_="log", uri=out)
-        await bus.emit(project_id, task_id, "artifact_uploaded", {"uri": out, "filename": file.filename})
-        return {"ok": True, "uri": out}
+            while chunk := await file.read(8192):
+                total += len(chunk)
+                if total > MAX_UPLOAD_BYTES:
+                    out.unlink(missing_ok=True)
+                    raise HTTPException(status_code=413, detail="file too large")
+                f.write(chunk)
+
+        uri = str(out)
+        await memory.record_artifact(project_id=project_id, task_id=task_id, type_="log", uri=uri)
+        await bus.emit(project_id, task_id, "artifact_uploaded", {"uri": uri, "filename": safe_name})
+        return {"ok": True, "uri": uri}
+
+    def _ws_auth(websocket: WebSocket) -> bool:
+        """Check WebSocket auth via query param or header. Returns True if allowed."""
+        if not _auth_enabled():
+            return True
+        token = websocket.query_params.get("token", "")
+        if not token:
+            auth = websocket.headers.get("authorization", "")
+            if auth.lower().startswith("bearer "):
+                token = auth.split(" ", 1)[1].strip()
+        role = _role_for_token(token) if token else None
+        return role is not None and _role_rank(role) >= _role_rank("reader")
 
     @app.websocket("/ws/projects/{project_id}")
     async def ws_project(websocket: WebSocket, project_id: UUID) -> None:
         """Project-level WebSocket: broadcasts all task events for the project."""
+        if not _ws_auth(websocket):
+            await websocket.close(code=1008, reason="unauthorized")
+            return
         await websocket.accept()
         pubsub = redis.pubsub()
         await pubsub.subscribe(bus.project_channel(project_id))
@@ -454,6 +492,9 @@ def create_app() -> FastAPI:
 
     @app.websocket("/ws/projects/{project_id}/tasks/{task_id}")
     async def ws_task(websocket: WebSocket, project_id: UUID, task_id: UUID, since: int = 0) -> None:
+        if not _ws_auth(websocket):
+            await websocket.close(code=1008, reason="unauthorized")
+            return
         await websocket.accept()
 
         # Replay backlog

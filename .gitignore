@@ -14,3 +14,18 @@ runtime/
 # Test caches
 .pytest_cache/
 .ruff_cache/
+
+# Secrets and environment
+.env
+.env.*
+*.pem
+*.key
+
+# Backup outputs
+backups/
+*.sql.gz
+*.tar.gz
+
+# IDE
+.idea/
+.vscode/

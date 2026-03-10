@@ -26,7 +26,10 @@ export function useTaskWebSocket(
     const host = import.meta.env.VITE_API_URL
       ? new URL(import.meta.env.VITE_API_URL).host
       : window.location.host;
-    const url = `${protocol}//${host}/ws/projects/${projectId}/tasks/${taskId}?since=0`;
+    const token = localStorage.getItem("odp_token");
+    const params = new URLSearchParams({ since: "0" });
+    if (token) params.set("token", token);
+    const url = `${protocol}//${host}/ws/projects/${projectId}/tasks/${taskId}?${params}`;
 
     const ws = new WebSocket(url);
     wsRef.current = ws;

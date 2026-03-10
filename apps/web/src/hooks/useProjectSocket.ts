@@ -35,7 +35,10 @@ export function useProjectSocket(projectId: string | undefined) {
       ? new URL(import.meta.env.VITE_API_URL).host
       : window.location.host;
     // Project-level WebSocket endpoint — broadcasts all task events.
-    const url = `${protocol}//${host}/ws/projects/${projectId}`;
+    // Pass auth token as query param since WS doesn't support custom headers natively.
+    const token = localStorage.getItem("odp_token");
+    const qs = token ? `?token=${encodeURIComponent(token)}` : "";
+    const url = `${protocol}//${host}/ws/projects/${projectId}${qs}`;
 
     const ws = new WebSocket(url);
     wsRef.current = ws;

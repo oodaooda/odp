@@ -97,7 +97,9 @@ async def run_agent(
     art_dir = cfg.artifacts_root / str(project_id) / str(task_id) / "agents" / str(role)
     art_dir.mkdir(parents=True, exist_ok=True)
 
-    env = os.environ.copy()
+    # Build agent env: inherit parent but strip secrets that agents should not see.
+    _SECRET_PREFIXES = ("ODP_API_TOKEN", "ODP_RBAC_", "ODP_GITHUB_TOKEN", "ODP_GITHUB_WEBHOOK_SECRET", "ODP_DATABASE_URL")
+    env = {k: v for k, v in os.environ.items() if not any(k.startswith(p) for p in _SECRET_PREFIXES)}
     env.setdefault("PYTHONUNBUFFERED", "1")
     if expected_spec_hash:
         env["ODP_EXPECTED_SPEC_HASH"] = expected_spec_hash
