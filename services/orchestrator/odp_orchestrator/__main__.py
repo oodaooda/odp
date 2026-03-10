@@ -6,7 +6,7 @@ from .api import create_app
 
 
 def main() -> None:
-    host = os.getenv("ODP_HOST", "0.0.0.0")
+    host = os.getenv("ODP_HOST", "127.0.0.1")
     port = int(os.getenv("ODP_PORT", "8080"))
     uvicorn.run(create_app(), host=host, port=port, log_level="info")
 

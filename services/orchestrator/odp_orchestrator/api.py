@@ -128,21 +128,52 @@ def create_app() -> FastAPI:
             or os.getenv("ODP_RBAC_READ_TOKENS")
         )
 
+    # Endpoints requiring admin role.
+    _ADMIN_PATHS = {"/promote", "/chat/compact", "/demo", "/resume"}
+
     def _required_role(path: str, method: str) -> str:
-        # Conservative defaults.
+        # Conservative defaults: read=reader, admin ops=admin, everything else=writer.
         if method in {"GET", "HEAD"}:
             return "reader"
-        if path.startswith("/projects/") and ("/promote" in path or path.endswith("/chat/compact")):
+        if path.startswith("/projects/") and any(ap in path for ap in _ADMIN_PATHS):
             return "admin"
+        # Webhook has its own auth (signature verification).
+        if path == "/webhooks/github":
+            return "reader"
         return "writer"
 
     def _role_rank(role: str) -> int:
         return {"reader": 1, "writer": 2, "admin": 3}.get(role, 0)
 
+    # ── Rate Limiting ── (per-IP, in-process; Caddy provides edge limiting)
+    _rate_buckets: dict[str, list[float]] = {}
+    _RATE_WINDOW = 60.0  # seconds
+    _RATE_LIMIT_WRITE = int(os.getenv("ODP_RATE_LIMIT_WRITE", "60"))
+    _RATE_LIMIT_READ = int(os.getenv("ODP_RATE_LIMIT_READ", "300"))
+
+    def _check_rate_limit(client_ip: str, limit: int) -> bool:
+        import time
+        now = time.monotonic()
+        key = f"{client_ip}:{limit}"
+        bucket = _rate_buckets.setdefault(key, [])
+        # Prune old entries.
+        cutoff = now - _RATE_WINDOW
+        _rate_buckets[key] = bucket = [t for t in bucket if t > cutoff]
+        if len(bucket) >= limit:
+            return False
+        bucket.append(now)
+        return True
+
     @app.middleware("http")
     async def auth_middleware(request: Request, call_next):
         app.state.metrics["requests_total"] += 1
         do_log = os.getenv("ODP_LOG_REQUESTS", "0") == "1"
+
+        # Rate limiting.
+        client_ip = request.client.host if request.client else "unknown"
+        limit = _RATE_LIMIT_READ if request.method in {"GET", "HEAD"} else _RATE_LIMIT_WRITE
+        if not _check_rate_limit(client_ip, limit):
+            return JSONResponse({"detail": "rate limit exceeded"}, status_code=429)
 
         if not _auth_enabled():
             resp = await call_next(request)
@@ -188,6 +219,23 @@ def create_app() -> FastAPI:
             print(json.dumps({"method": request.method, "path": request.url.path, "status": resp.status_code, "role": role}))
         return resp
 
+    @app.middleware("http")
+    async def security_headers_middleware(request: Request, call_next):
+        resp = await call_next(request)
+        resp.headers["X-Content-Type-Options"] = "nosniff"
+        resp.headers["X-Frame-Options"] = "DENY"
+        resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        resp.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "connect-src 'self' wss: ws:; "
+            "img-src 'self' data:; "
+            "frame-ancestors 'none'"
+        )
+        resp.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        return resp
+
 
     @app.get("/healthz")
     async def healthz(request: Request) -> dict[str, Any]:
@@ -231,7 +279,7 @@ def create_app() -> FastAPI:
     async def get_task(project_id: UUID, task_id: UUID) -> Task:
         t = await orch.get_task(project_id, task_id)
         if not t:
-            raise HTTPException(status_code=404, detail="task not found")
+            raise HTTPException(status_code=404, detail="not found")
         return t
 
     @app.post("/projects/{project_id}/chat")
@@ -355,7 +403,7 @@ def create_app() -> FastAPI:
     ) -> dict[str, Any]:
         meta = await memory.get_agent_memory_meta(project_id=project_id, agent_memory_id=agent_memory_id)
         if not meta:
-            raise HTTPException(status_code=404, detail="agent memory not found")
+            raise HTTPException(status_code=404, detail="not found")
 
         promotion_id = await memory.promote_agent_memory(
             project_id=project_id,
@@ -398,7 +446,7 @@ def create_app() -> FastAPI:
     async def get_task_artifact(project_id: UUID, task_id: UUID, artifact_id: UUID) -> FileResponse:
         row = await memory.get_artifact(project_id=project_id, task_id=task_id, artifact_id=artifact_id)
         if not row:
-            raise HTTPException(status_code=404, detail="artifact not found")
+            raise HTTPException(status_code=404, detail="not found")
         base = Path(os.getenv("ODP_ARTIFACT_DIR", "runtime/artifacts")).resolve()
         path = Path(row["uri"])
         if not path.is_absolute():
@@ -406,13 +454,13 @@ def create_app() -> FastAPI:
         try:
             resolved = path.resolve()
         except Exception:
-            raise HTTPException(status_code=404, detail="artifact not found")
+            raise HTTPException(status_code=404, detail="not found")
         try:
             resolved.relative_to(base)
         except Exception:
-            raise HTTPException(status_code=403, detail="artifact path forbidden")
+            raise HTTPException(status_code=403, detail="forbidden")
         if not resolved.is_file():
-            raise HTTPException(status_code=404, detail="artifact not found")
+            raise HTTPException(status_code=404, detail="not found")
         return FileResponse(str(resolved))
 
     MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
@@ -588,7 +636,7 @@ def create_app() -> FastAPI:
         key = f"odp:project:{project_id}:meta"
         raw = await redis.get(key)
         if not raw:
-            raise HTTPException(status_code=404, detail="project not found")
+            raise HTTPException(status_code=404, detail="not found")
         meta = json.loads(raw if isinstance(raw, str) else raw.decode("utf-8"))
         if req.name is not None:
             meta["name"] = req.name
@@ -610,7 +658,10 @@ def create_app() -> FastAPI:
         secret = os.getenv("ODP_GITHUB_WEBHOOK_SECRET", "")
         body = await request.body()
 
-        # Verify signature if secret is configured.
+        # Require secret to be configured; reject if not.
+        if not secret:
+            raise HTTPException(status_code=503, detail="webhook not configured")
+
         if secret:
             sig_header = request.headers.get("X-Hub-Signature-256", "")
             expected = "sha256=" + hmac.new(

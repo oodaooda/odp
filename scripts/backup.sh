@@ -30,8 +30,9 @@ else
   echo "  No artifact directory found at ${ARTIFACT_DIR}; skipping."
 fi
 
-# 3. Metadata
-echo "{\"timestamp\":\"${TIMESTAMP}\",\"db_url\":\"${DB_URL}\",\"artifact_dir\":\"${ARTIFACT_DIR}\"}" \
+# 3. Metadata (redact credentials from DB URL)
+SAFE_DB_URL=$(echo "${DB_URL}" | sed -E 's|://[^@]+@|://***:***@|')
+echo "{\"timestamp\":\"${TIMESTAMP}\",\"db_url\":\"${SAFE_DB_URL}\",\"artifact_dir\":\"${ARTIFACT_DIR}\"}" \
   > "${DEST}/backup_meta.json"
 
 echo "==> Backup complete: ${DEST}"

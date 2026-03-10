@@ -341,7 +341,22 @@ def _qa(workspace: Path, artifacts_dir: Path) -> AgentOutput:
     )
 
 
-_SECRET_MARKERS = ["wt_", "sk-", "-----BEGIN PRIVATE KEY-----", "AWS_SECRET_ACCESS_KEY"]
+_SECRET_MARKERS = [
+    "sk-",                          # OpenAI / Stripe keys
+    "sk-ant-",                      # Anthropic keys
+    "wt_",                          # Weights & Biases
+    "ghp_", "gho_", "github_pat_",  # GitHub tokens
+    "AKIA",                         # AWS access key ID prefix
+    "AWS_SECRET_ACCESS_KEY",
+    "-----BEGIN PRIVATE KEY-----",
+    "-----BEGIN RSA PRIVATE KEY-----",
+    "-----BEGIN EC PRIVATE KEY-----",
+    "-----BEGIN OPENSSH PRIVATE KEY-----",
+    "password=",
+    "secret=",
+    "token=",
+    "api_key=",
+]
 
 
 def _dependency_sanity(workspace: Path) -> tuple[bool, str]:

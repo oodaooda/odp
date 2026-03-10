@@ -31,7 +31,7 @@ Make ODP deployable and secure for real use — not just local dev. This covers 
 ### 5) Process management
 - [x] systemd unit files for: orchestrator API, Redis
 - [x] Auto-restart on failure
-- [ ] Log rotation config
+- [x] Log rotation config (`infra/logrotate.d/odp`)
 - [x] Example files in `infra/systemd/`
 
 ### 6) Backup & restore

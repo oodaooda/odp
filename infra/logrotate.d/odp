@@ -1,0 +1,24 @@
+# ODP log rotation — install via:
+#   sudo cp infra/logrotate.d/odp /etc/logrotate.d/odp
+
+/var/log/odp/*.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    maxsize 100M
+}
+
+/var/log/caddy/*.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    maxsize 100M
+}
