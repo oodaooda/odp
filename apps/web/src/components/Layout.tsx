@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { NavLink, Outlet, useParams, useNavigate } from "react-router-dom";
 import { useProjectSocket } from "../hooks/useProjectSocket";
-import { listProjects, type Project } from "../api/client";
+import { listProjects, getRole, type Project } from "../api/client";
 
 const NAV_ITEMS = [
   { label: "Dashboard", path: "" },
@@ -19,6 +19,7 @@ export default function Layout() {
   const base = `/projects/${projectId}`;
   const { connected } = useProjectSocket(projectId);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [role, setRole] = useState<string | null>(null);
 
   const loadProjects = useCallback(async () => {
     try {
@@ -31,6 +32,7 @@ export default function Layout() {
 
   useEffect(() => {
     loadProjects();
+    getRole().then(setRole);
   }, [loadProjects]);
 
   const handleProjectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -47,6 +49,15 @@ export default function Layout() {
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, fontSize: 11 }}>
             <span className={`ws-indicator ${connected ? "connected" : "disconnected"}`} />
             <span style={{ color: "var(--text-muted)" }}>{connected ? "Live" : "Polling"}</span>
+            {role && (
+              <span style={{
+                marginLeft: 6, padding: "1px 6px",
+                background: role === "admin" ? "var(--accent-orange)" : role === "writer" ? "var(--accent-green)" : "var(--accent-blue, #3b82f6)",
+                color: "#000", borderRadius: "var(--radius-sm)", fontWeight: 600, fontSize: 10, textTransform: "uppercase",
+              }}>
+                {role}
+              </span>
+            )}
           </div>
         </div>
         {projects.length > 0 && (

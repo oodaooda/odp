@@ -1,10 +1,10 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { listTasks, listChat, sendChat, seedDemo, createTask } from "../api/client";
+import { listTasks, listChat, sendChat, seedDemo, createTask, searchMemory } from "../api/client";
 import { usePollingRefresh } from "../hooks/useLiveRefresh";
 import { useProjectSocket } from "../hooks/useProjectSocket";
 import { useToast } from "../components/Toast";
-import type { Task, ChatMessage } from "../api/types";
+import type { Task, ChatMessage, MemoryEvent } from "../api/types";
 
 function timeAgo(ms: number): string {
   const diff = Date.now() - ms;
@@ -25,6 +25,8 @@ export default function Dashboard() {
   const [newTaskDesc, setNewTaskDesc] = useState("");
   const [showNewTask, setShowNewTask] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [memoryQuery, setMemoryQuery] = useState("");
+  const [memoryResults, setMemoryResults] = useState<MemoryEvent[]>([]);
 
   const refresh = useCallback(async () => {
     if (!projectId) return;
@@ -77,6 +79,16 @@ export default function Dashboard() {
       refresh();
     } catch {
       toast("Failed to create task", "error");
+    }
+  };
+
+  const handleMemorySearch = async () => {
+    if (!memoryQuery.trim() || !projectId) return;
+    try {
+      const res = await searchMemory(projectId, memoryQuery.trim());
+      setMemoryResults(res.events ?? []);
+    } catch {
+      toast("Memory search failed", "error");
     }
   };
 
@@ -330,6 +342,45 @@ export default function Dashboard() {
             )}
           </div>
         </div>
+      </div>
+
+      {/* Memory Search */}
+      <div className="card" style={{ marginTop: 20 }}>
+        <h3>Memory Search</h3>
+        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          <input
+            style={{
+              flex: 1, background: "var(--bg-input)",
+              border: "1px solid var(--border)", borderRadius: "var(--radius-sm)",
+              padding: "8px 12px", color: "var(--text-primary)", fontSize: 13, outline: "none",
+            }}
+            placeholder="Search memory events..."
+            value={memoryQuery}
+            onChange={(e) => setMemoryQuery(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleMemorySearch()}
+          />
+          <button className="btn btn-primary btn-sm" onClick={handleMemorySearch}>
+            Search
+          </button>
+        </div>
+        {memoryResults.length > 0 && (
+          <table className="data-table">
+            <thead>
+              <tr><th>Type</th><th>Detail</th><th>Time</th></tr>
+            </thead>
+            <tbody>
+              {memoryResults.slice(0, 20).map((e) => (
+                <tr key={e.id}>
+                  <td>{e.event_type}</td>
+                  <td className="text-sm" style={{ maxWidth: 400, overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {JSON.stringify(e.payload).slice(0, 120)}
+                  </td>
+                  <td className="text-muted mono">{new Date(e.created_at).toISOString().slice(11, 19)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </>
   );

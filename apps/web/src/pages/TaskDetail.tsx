@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams } from "react-router-dom";
-import { getTask, listMemoryEvents, listArtifacts, listAgentMemory, promoteMemory, resumeTasks } from "../api/client";
+import { getTask, listMemoryEvents, listArtifacts, listAgentMemory, promoteMemory, resumeTasks, cancelTask } from "../api/client";
 import { useLiveRefresh } from "../hooks/useLiveRefresh";
 import { useToast } from "../components/Toast";
 import type { Task, MemoryEvent, Artifact, AgentMemory } from "../api/types";
@@ -69,6 +69,17 @@ export default function TaskDetail() {
     }
   };
 
+  const handleCancel = async () => {
+    if (!projectId || !taskId) return;
+    try {
+      await cancelTask(projectId, taskId);
+      toast("Task cancelled", "info");
+      refresh();
+    } catch {
+      toast("Failed to cancel task", "error");
+    }
+  };
+
   if (!task) {
     return (
       <div className="loading-center">
@@ -96,7 +107,12 @@ export default function TaskDetail() {
             </button>
           )}
           {isRunning && (
-            <span className="status status-active">Running...</span>
+            <>
+              <button className="btn" style={{ background: "var(--accent-red)", color: "#fff" }} onClick={handleCancel}>
+                Cancel
+              </button>
+              <span className="status status-active">Running...</span>
+            </>
           )}
         </div>
       </div>
@@ -334,13 +350,26 @@ export default function TaskDetail() {
                     {new Date(a.created_at).toISOString().slice(0, 19)}
                   </td>
                   <td>
-                    <button
-                      className="btn btn-sm"
-                      style={{ fontSize: 12, padding: "2px 8px" }}
-                      onClick={() => setExpandedArtifact(expandedArtifact === a.id ? null : a.id)}
-                    >
-                      {expandedArtifact === a.id ? "Hide" : "View"}
-                    </button>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      <button
+                        className="btn btn-sm"
+                        style={{ fontSize: 12, padding: "2px 8px" }}
+                        onClick={() => setExpandedArtifact(expandedArtifact === a.id ? null : a.id)}
+                      >
+                        {expandedArtifact === a.id ? "Hide" : "View"}
+                      </button>
+                      {a.uri && (
+                        <a
+                          href={a.uri}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="btn btn-sm"
+                          style={{ fontSize: 12, padding: "2px 8px", textDecoration: "none" }}
+                        >
+                          Download
+                        </a>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

@@ -8,7 +8,7 @@ Make ODP deployable and secure for real use — not just local dev. This covers 
 ### 1) Auth flow in React app
 - [x] Login page or token input screen (shown when backend returns 401)
 - [x] Token stored in localStorage, sent as `Authorization: Bearer` header on all API calls
-- [ ] Role indicator in sidebar (reader/writer/admin)
+- [x] Role indicator in sidebar (reader/writer/admin)
 - [x] Graceful handling of expired/invalid tokens
 
 ### 2) Frontend test suite

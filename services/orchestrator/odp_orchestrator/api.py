@@ -173,9 +173,13 @@ def create_app() -> FastAPI:
         required = _required_role(request.url.path, request.method)
 
         if not role or _role_rank(role) < _role_rank(required):
+            # Always log auth failures for security audit.
+            print(json.dumps({
+                "event": "auth_failure", "method": request.method,
+                "path": request.url.path, "required": required,
+                "client": request.client.host if request.client else "unknown",
+            }))
             resp = JSONResponse({"detail": "unauthorized"}, status_code=401)
-            if do_log:
-                print(json.dumps({"method": request.method, "path": request.url.path, "status": resp.status_code}))
             return resp
 
         request.state.role = role
@@ -186,8 +190,9 @@ def create_app() -> FastAPI:
 
 
     @app.get("/healthz")
-    async def healthz() -> dict[str, Any]:
-        return {"ok": True}
+    async def healthz(request: Request) -> dict[str, Any]:
+        role = getattr(request.state, "role", None)
+        return {"ok": True, "role": role}
 
     @app.get("/metrics")
     async def metrics() -> str:
@@ -481,6 +486,13 @@ def create_app() -> FastAPI:
             except Exception:
                 pass
 
+    @app.post("/projects/{project_id}/tasks/{task_id}/cancel")
+    async def cancel_task(project_id: UUID, task_id: UUID) -> dict[str, Any]:
+        ok = await orch.cancel_task(project_id, task_id)
+        if not ok:
+            raise HTTPException(status_code=400, detail="task not cancellable (already terminal or not found)")
+        return {"ok": True}
+
     @app.post("/projects/{project_id}/resume")
     async def resume(project_id: UUID) -> dict[str, Any]:
         n = await orch.resume_incomplete(project_id)
@@ -523,6 +535,27 @@ def create_app() -> FastAPI:
             "default_branch": req.default_branch,
         }
         await redis.set(f"odp:project:{project_id}:meta", json.dumps(meta))
+        return meta
+
+    class ProjectUpdateRequest(BaseModel):
+        name: str | None = Field(default=None, max_length=200)
+        github_repo: str | None = Field(default=None, max_length=200)
+        default_branch: str | None = Field(default=None, max_length=100)
+
+    @app.patch("/projects/{project_id}")
+    async def update_project(project_id: UUID, req: ProjectUpdateRequest) -> dict[str, Any]:
+        key = f"odp:project:{project_id}:meta"
+        raw = await redis.get(key)
+        if not raw:
+            raise HTTPException(status_code=404, detail="project not found")
+        meta = json.loads(raw if isinstance(raw, str) else raw.decode("utf-8"))
+        if req.name is not None:
+            meta["name"] = req.name
+        if req.github_repo is not None:
+            meta["github_repo"] = req.github_repo
+        if req.default_branch is not None:
+            meta["default_branch"] = req.default_branch
+        await redis.set(key, json.dumps(meta))
         return meta
 
     # ── GitHub Webhook ──

@@ -12,14 +12,28 @@ import Specs from "./pages/Specs";
 import AuditLog from "./pages/AuditLog";
 import Settings from "./pages/Settings";
 import Login from "./pages/Login";
+import { listProjects } from "./api/client";
 
-const DEFAULT_PROJECT = "00000000-0000-0000-0000-000000000001";
+const FALLBACK_PROJECT = "00000000-0000-0000-0000-000000000001";
+
+function ProjectRedirect() {
+  const [target, setTarget] = useState<string | null>(null);
+  useEffect(() => {
+    listProjects()
+      .then((res) => {
+        const projects = res.projects ?? [];
+        setTarget(projects.length > 0 ? projects[0].project_id : FALLBACK_PROJECT);
+      })
+      .catch(() => setTarget(FALLBACK_PROJECT));
+  }, []);
+  if (!target) return <div className="loading-center"><div className="spinner" /></div>;
+  return <Navigate to={`/projects/${target}`} replace />;
+}
 
 export default function App() {
   const [authState, setAuthState] = useState<"checking" | "needed" | "ok">("checking");
 
   useEffect(() => {
-    // Check if auth is required by probing the API.
     const stored = localStorage.getItem("odp_token");
     fetch("/projects/default/tasks", {
       headers: stored ? { Authorization: `Bearer ${stored}` } : {},
@@ -32,7 +46,6 @@ export default function App() {
         }
       })
       .catch(() => {
-        // Server unreachable — show app anyway (will show errors).
         setAuthState("ok");
       });
   }, []);
@@ -63,7 +76,7 @@ export default function App() {
       <ToastProvider>
         <Routes>
           <Route element={<Layout />}>
-            <Route path="/" element={<Navigate to={`/projects/${DEFAULT_PROJECT}`} replace />} />
+            <Route path="/" element={<ProjectRedirect />} />
             <Route path="/projects/:projectId" element={<Dashboard />} />
             <Route path="/projects/:projectId/tasks/:taskId" element={<TaskDetail />} />
             <Route path="/projects/:projectId/gates" element={<GateEvidence />} />

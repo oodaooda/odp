@@ -153,3 +153,20 @@ export const resumeTasks = (projectId: string) =>
   api<{ resumed: number }>(`/projects/${projectId}/resume`, {
     method: "POST",
   });
+
+export const cancelTask = (projectId: string, taskId: string) =>
+  api<{ ok: boolean }>(`/projects/${projectId}/tasks/${taskId}/cancel`, {
+    method: "POST",
+  });
+
+export const getRole = async (): Promise<string | null> => {
+  try {
+    const res = await fetch("/healthz", {
+      headers: { ...authHeaders() },
+    });
+    const data = await res.json();
+    return data.role ?? null;
+  } catch {
+    return null;
+  }
+};
