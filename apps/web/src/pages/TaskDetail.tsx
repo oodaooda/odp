@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 import { getTask, listMemoryEvents, listArtifacts, listAgentMemory, promoteMemory, resumeTasks, cancelTask } from "../api/client";
 import { useLiveRefresh } from "../hooks/useLiveRefresh";
 import { useToast } from "../components/Toast";
-import type { Task, MemoryEvent, Artifact, AgentMemory } from "../api/types";
+import type { Task, MemoryEvent, Artifact, AgentMemory, TokenUsage } from "../api/types";
 import StateTimeline from "../components/StateTimeline";
 
 export default function TaskDetail() {
@@ -18,6 +18,7 @@ export default function TaskDetail() {
   const [pendingMemory, setPendingMemory] = useState<AgentMemory[]>([]);
   const [prevState, setPrevState] = useState<string | null>(null);
   const [expandedArtifact, setExpandedArtifact] = useState<string | null>(null);
+  const [liveTokens, setLiveTokens] = useState<TokenUsage | null>(null);
 
   const refresh = useCallback(async () => {
     if (!projectId || !taskId) return;
@@ -45,7 +46,11 @@ export default function TaskDetail() {
     refresh();
   }, [refresh]);
 
-  const { wsConnected } = useLiveRefresh(projectId, taskId, refresh);
+  const { wsConnected } = useLiveRefresh(projectId, taskId, refresh, 30_000, (type, data) => {
+    if (type === "token_update" && data.token_usage) {
+      setLiveTokens(data.token_usage as TokenUsage);
+    }
+  });
 
   const handlePromote = async (memoryId: string, decision: "approved" | "rejected") => {
     if (!projectId) return;
@@ -231,6 +236,60 @@ export default function TaskDetail() {
       <div className="card mb-20">
         <StateTimeline current={task.state} />
       </div>
+
+      {/* Live Token Usage */}
+      {(() => {
+        const tokens = liveTokens ?? task.token_usage;
+        if (!tokens) return null;
+        const roles = ["engineer", "qa", "security", "orchestrator"] as const;
+        const total = roles.reduce(
+          (acc, r) => {
+            const b = tokens[r];
+            acc.input += b.input; acc.output += b.output; acc.cost += b.cost;
+            return acc;
+          },
+          { input: 0, output: 0, cost: 0 }
+        );
+        const hasUsage = total.input > 0 || total.output > 0;
+        if (!hasUsage) return null;
+        return (
+          <div className="card mb-20">
+            <h3>
+              Token Usage
+              {liveTokens && isRunning && (
+                <span style={{ marginLeft: 8, fontSize: 11, color: "var(--accent-green)", fontWeight: 400 }}>● live</span>
+              )}
+            </h3>
+            <table className="data-table">
+              <thead>
+                <tr><th>Actor</th><th>Input</th><th>Output</th><th>Total</th><th>Est. Cost</th></tr>
+              </thead>
+              <tbody>
+                {roles.map((r) => {
+                  const b = tokens[r];
+                  if (!b.input && !b.output) return null;
+                  return (
+                    <tr key={r}>
+                      <td style={{ textTransform: "capitalize", fontWeight: 500 }}>{r}</td>
+                      <td className="mono">{b.input.toLocaleString()}</td>
+                      <td className="mono">{b.output.toLocaleString()}</td>
+                      <td className="mono">{(b.input + b.output).toLocaleString()}</td>
+                      <td className="mono" style={{ color: "var(--accent-orange)" }}>${b.cost.toFixed(4)}</td>
+                    </tr>
+                  );
+                })}
+                <tr style={{ borderTop: "1px solid var(--border)", fontWeight: 600 }}>
+                  <td>Total</td>
+                  <td className="mono">{total.input.toLocaleString()}</td>
+                  <td className="mono">{total.output.toLocaleString()}</td>
+                  <td className="mono">{(total.input + total.output).toLocaleString()}</td>
+                  <td className="mono" style={{ color: "var(--accent-orange)" }}>${total.cost.toFixed(4)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        );
+      })()}
 
       {/* Pending Agent Memory */}
       {pendingMemory.length > 0 && (

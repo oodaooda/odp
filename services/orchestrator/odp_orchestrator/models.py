@@ -54,6 +54,35 @@ class AgentResult(BaseModel):
     created_at_ms: int
 
 
+class TokenBucket(BaseModel):
+    """Token usage for a single actor (agent role or orchestrator)."""
+    input: int = 0
+    output: int = 0
+    cost: float = 0.0
+
+    def add(self, input_tokens: int, output_tokens: int, cost: float) -> None:
+        self.input += input_tokens
+        self.output += output_tokens
+        self.cost += cost
+
+
+class TokenUsage(BaseModel):
+    """Per-actor token tracking for a task."""
+    engineer: TokenBucket = Field(default_factory=TokenBucket)
+    qa: TokenBucket = Field(default_factory=TokenBucket)
+    security: TokenBucket = Field(default_factory=TokenBucket)
+    orchestrator: TokenBucket = Field(default_factory=TokenBucket)
+
+    @property
+    def total(self) -> TokenBucket:
+        t = TokenBucket()
+        for b in (self.engineer, self.qa, self.security, self.orchestrator):
+            t.input += b.input
+            t.output += b.output
+            t.cost += b.cost
+        return t
+
+
 class Task(BaseModel):
     project_id: UUID
     task_id: UUID
@@ -68,6 +97,9 @@ class Task(BaseModel):
     # IDs are tracked so the task is fully reconstructable from Redis alone.
     agent_results: list[str] = Field(default_factory=list)
     gate_decisions: list[str] = Field(default_factory=list)
+
+    # Token usage across all LLM calls for this task.
+    token_usage: TokenUsage = Field(default_factory=TokenUsage)
 
 
 class TaskCreateRequest(BaseModel):

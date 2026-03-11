@@ -24,6 +24,19 @@ export interface GateDecision {
   evidence: string[];
 }
 
+export interface TokenBucket {
+  input: number;
+  output: number;
+  cost: number;
+}
+
+export interface TokenUsage {
+  engineer: TokenBucket;
+  qa: TokenBucket;
+  security: TokenBucket;
+  orchestrator: TokenBucket;
+}
+
 export interface Task {
   project_id: string;
   task_id: string;
@@ -36,6 +49,7 @@ export interface Task {
   attempt: number;
   agent_results: AgentResult[];
   gate_decisions: GateDecision[];
+  token_usage?: TokenUsage;
 }
 
 export interface ChatMessage {

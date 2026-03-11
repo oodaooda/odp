@@ -19,6 +19,7 @@ from .models import (
     Task,
     TaskCreateRequest,
     TaskState,
+    TokenUsage,
 )
 from .redis_store import RedisStore
 
@@ -262,13 +263,49 @@ class Orchestrator:
             payload={"state": new_state},
         )
 
+    def _parse_token_logs(self, logs: list[str]) -> tuple[int, int, float]:
+        """Extract token counts from agent log lines like 'llm_tokens_in=123'."""
+        in_tok = out_tok = 0
+        cost = 0.0
+        for line in logs:
+            if line.startswith("llm_tokens_in="):
+                try:
+                    in_tok = int(line.split("=", 1)[1])
+                except ValueError:
+                    pass
+            elif line.startswith("llm_tokens_out="):
+                try:
+                    out_tok = int(line.split("=", 1)[1])
+                except ValueError:
+                    pass
+            elif line.startswith("llm_cost_usd="):
+                try:
+                    cost = float(line.split("=", 1)[1])
+                except ValueError:
+                    pass
+        return in_tok, out_tok, cost
+
     async def _attach_agent_result(self, t: Task, res: AgentResult) -> None:
         key = f"odp:{t.project_id}:task:{t.task_id}:agent_result:{res.role}"
         await self.store.put_json(key, res.model_dump())
         if key not in t.agent_results:
             t.agent_results.append(key)
+
+        # Parse and accumulate token usage from agent logs.
+        in_tok, out_tok, cost = self._parse_token_logs(res.logs)
+        if in_tok or out_tok:
+            role_bucket = getattr(t.token_usage, str(res.role), None)
+            if role_bucket is not None:
+                role_bucket.add(in_tok, out_tok, cost)
+
         await self._save_task(t)
         await self.bus.emit(t.project_id, t.task_id, "agent_result", {"result": res.model_dump()})
+        # Emit token update so frontend updates live.
+        total = t.token_usage.total
+        await self.bus.emit(t.project_id, t.task_id, "token_update", {
+            "token_usage": t.token_usage.model_dump(),
+            "total": total.model_dump(),
+        })
 
         # Persist artifacts.
         for a in res.artifacts:

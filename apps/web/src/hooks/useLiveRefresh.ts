@@ -11,7 +11,8 @@ export function useLiveRefresh(
   projectId: string | undefined,
   taskId: string | undefined,
   refresh: () => Promise<void> | void,
-  fallbackMs = 30_000
+  fallbackMs = 30_000,
+  onEvent?: (type: string, data: Record<string, unknown>) => void
 ) {
   const [wsConnected, setWsConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
@@ -19,6 +20,8 @@ export function useLiveRefresh(
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const refreshRef = useRef(refresh);
   refreshRef.current = refresh;
+  const onEventRef = useRef(onEvent);
+  onEventRef.current = onEvent;
 
   const connect = useCallback(() => {
     if (!projectId || !taskId) return;
@@ -27,7 +30,10 @@ export function useLiveRefresh(
     const host = import.meta.env.VITE_API_URL
       ? new URL(import.meta.env.VITE_API_URL).host
       : window.location.host;
-    const url = `${protocol}//${host}/ws/projects/${projectId}/tasks/${taskId}?since=0`;
+    const token = localStorage.getItem("odp_token");
+    const params = new URLSearchParams({ since: "0" });
+    if (token) params.set("token", token);
+    const url = `${protocol}//${host}/ws/projects/${projectId}/tasks/${taskId}?${params}`;
 
     const ws = new WebSocket(url);
     wsRef.current = ws;
@@ -37,8 +43,21 @@ export function useLiveRefresh(
       retriesRef.current = 0;
     };
 
-    ws.onmessage = () => {
-      // Any WS message = something changed, refresh immediately
+    ws.onmessage = (msg) => {
+      try {
+        const parsed = JSON.parse(msg.data);
+        const evtType = parsed.event_type ?? parsed.type ?? "";
+        // For token updates, call handler directly without full refresh.
+        if (evtType === "token_update" && onEventRef.current) {
+          onEventRef.current(evtType, parsed);
+          return;
+        }
+        if (evtType === "chat_message" && onEventRef.current) {
+          onEventRef.current(evtType, parsed);
+          return;
+        }
+      } catch { /* ignore parse errors */ }
+      // Everything else triggers a refresh.
       refreshRef.current();
     };
 

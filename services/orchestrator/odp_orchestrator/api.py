@@ -284,15 +284,79 @@ def create_app() -> FastAPI:
 
     @app.post("/projects/{project_id}/chat")
     async def chat(project_id: UUID, req: ChatMessageRequest) -> dict[str, Any]:
-        await memory.write_chat_message(
-            project_id=project_id, task_id=req.task_id, actor=req.actor, text_=req.text
-        )
-        # Lightweight buffer to improve robustness under concurrent sqlite writes (tests/dev).
-        try:
-            if req.task_id:
-                await store.redis.rpush(f"chatbuf:{project_id}:{req.task_id}", req.text)
-        except Exception:
-            pass
+        # Only generate a reply for user messages (not orchestrator echoes).
+        if req.actor == "user":
+            await memory.write_chat_message(
+                project_id=project_id, task_id=req.task_id, actor="user", text_=req.text
+            )
+            try:
+                if req.task_id:
+                    await store.redis.rpush(f"chatbuf:{project_id}:{req.task_id}", req.text)
+            except Exception:
+                pass
+
+            # Generate orchestrator reply via LLM (Anthropic) if configured.
+            reply_text: str | None = None
+            try:
+                from .llm import call_llm
+                # Build conversation history as context.
+                recent = await memory.list_chat_messages(
+                    project_id=project_id, task_id=req.task_id, limit=20
+                )
+                history_msgs: list[dict[str, str]] = []
+                for m in reversed(recent[-10:]):  # oldest first, last 10
+                    role = "user" if m["actor"] == "user" else "assistant"
+                    history_msgs.append({"role": role, "content": m["text"]})
+                # Current message may not be in DB yet — ensure it's last.
+                if not history_msgs or history_msgs[-1]["content"] != req.text:
+                    history_msgs.append({"role": "user", "content": req.text})
+
+                system = (
+                    "You are the ODP (Orchestrated Dev Platform) orchestrator — an autonomous "
+                    "software engineering platform. You help the user manage tasks, understand "
+                    "agent results, and plan work. Be concise and helpful. "
+                    "If the user asks about a task, refer to the project context."
+                )
+                resp = await call_llm(
+                    system=system, messages=history_msgs,
+                    max_tokens=512, env_prefix="ODP_ORCH_LLM"
+                )
+                if resp:
+                    reply_text = resp.text
+                    # Track orchestrator tokens against the task if provided.
+                    if req.task_id:
+                        t = await orch.get_task(project_id, req.task_id)
+                        if t:
+                            t.token_usage.orchestrator.add(
+                                resp.input_tokens, resp.output_tokens, resp.cost_estimate
+                            )
+                            await orch._save_task(t)
+                            total = t.token_usage.total
+                            await bus.emit(project_id, req.task_id, "token_update", {
+                                "token_usage": t.token_usage.model_dump(),
+                                "total": total.model_dump(),
+                            })
+            except Exception:
+                pass  # Fallback: static reply
+
+            if not reply_text:
+                reply_text = (
+                    "I received your message. "
+                    "Set ODP_ORCH_LLM_PROVIDER=anthropic and ODP_ORCH_LLM_API_KEY to enable AI responses."
+                )
+
+            await memory.write_chat_message(
+                project_id=project_id, task_id=req.task_id,
+                actor="orchestrator", text_=reply_text
+            )
+            await bus.emit(project_id, req.task_id or project_id, "chat_message", {
+                "actor": "orchestrator", "text": reply_text
+            })
+        else:
+            # Direct orchestrator message write (used internally).
+            await memory.write_chat_message(
+                project_id=project_id, task_id=req.task_id, actor=req.actor, text_=req.text
+            )
         return {"ok": True}
 
     @app.get("/projects/{project_id}/chat")
