@@ -56,24 +56,36 @@ async def _ensure_workspace_repo(
         return workspace_root, None
 
     ws_repo = workspace_root / "repo"
+    print(f"[WORKSPACE] github_repo={github_repo} ws_repo={ws_repo} exists={ws_repo.exists()}", flush=True)
     if (ws_repo / ".git").exists():
         return ws_repo, branch
 
     # If a GitHub repo is configured, clone it instead of using a local worktree.
     if github_repo:
         if github_token:
-            clone_url = f"https://x-access-token:{github_token}@github.com/{github_repo}.git"
+            clone_url = f"https://x-access-token:****@github.com/{github_repo}.git"
         else:
             clone_url = f"https://github.com/{github_repo}.git"
+        print(f"[WORKSPACE] cloning {clone_url} -> {ws_repo}", flush=True)
+        # Use actual token in the real URL.
+        real_url = f"https://x-access-token:{github_token}@github.com/{github_repo}.git" if github_token else clone_url
         rc, out = await _run_local_cmd(
-            "git", "clone", "--depth", "1", clone_url, str(ws_repo),
+            "git", "clone", "--depth", "1", real_url, str(ws_repo),
             cwd=workspace_root, timeout_s=120,
         )
+        print(f"[WORKSPACE] clone rc={rc} out={out[:200]}", flush=True)
         if rc != 0:
             import logging
             logging.getLogger(__name__).warning("git clone failed: %s", out)
             # Fall through to worktree method.
         else:
+            # Strip token from .git/config remote URL to avoid secret scanner hits.
+            if github_token:
+                await _run_local_cmd(
+                    "git", "remote", "set-url", "origin",
+                    f"https://github.com/{github_repo}.git",
+                    cwd=ws_repo, timeout_s=10,
+                )
             # Create a working branch if needed.
             if branch:
                 await _run_local_cmd(
