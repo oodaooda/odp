@@ -49,6 +49,7 @@ async def _ensure_workspace_repo(
     - Otherwise: git worktree checkout from local repo_root.
     - Test mode: no checkout (workspace_root used directly).
     """
+    workspace_root = workspace_root.resolve()
     workspace_root.mkdir(parents=True, exist_ok=True)
 
     if os.getenv("ODP_AGENT_TEST_MODE", "0") == "1":
