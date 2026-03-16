@@ -290,7 +290,7 @@ def _engineer(workspace: Path, artifacts_dir: Path) -> AgentOutput:
     diff = _run(["git", "diff"], cwd=workspace, timeout_s=60)
     diff_uri = _write(artifacts_dir / "engineer_diff.patch", diff.stdout)
 
-    tests = _run(["python", "-m", "pytest", "-q"], cwd=workspace, timeout_s=1200)
+    tests = _run(["python", "-m", "pytest", "-q", "--rootdir", str(workspace)], cwd=workspace, timeout_s=1200)
     test_uri = _write(artifacts_dir / "engineer_pytest.txt", tests.stdout)
 
     ok = tests.returncode == 0
@@ -362,7 +362,7 @@ def _engineer_with_llm(workspace: Path, artifacts_dir: Path) -> AgentOutput:
     artifacts.append({"type": "diff", "uri": diff_uri})
 
     # Run tests to validate.
-    tests = _run(["python", "-m", "pytest", "-q"], cwd=workspace, timeout_s=1200)
+    tests = _run(["python", "-m", "pytest", "-q", "--rootdir", str(workspace)], cwd=workspace, timeout_s=1200)
     test_uri = _write(artifacts_dir / "engineer_pytest.txt", tests.stdout)
     artifacts.append({"type": "log", "uri": test_uri})
 
@@ -427,7 +427,7 @@ def _qa(workspace: Path, artifacts_dir: Path) -> AgentOutput:
             ],
         )
 
-    tests = _run(["python", "-m", "pytest", "-q"], cwd=workspace, timeout_s=1200)
+    tests = _run(["python", "-m", "pytest", "-q", "--rootdir", str(workspace)], cwd=workspace, timeout_s=1200)
     qa_uri = _write(artifacts_dir / "qa_pytest.txt", tests.stdout)
     tests_ok = tests.returncode == 0
     ok = tests_ok and spec_ok
