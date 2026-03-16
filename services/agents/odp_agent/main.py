@@ -106,6 +106,9 @@ def _build_engineer_prompt(workspace: Path) -> tuple[str, list[dict[str, str]]]:
         "- For new files, use /dev/null as the --- path\n"
         "- Do not introduce security vulnerabilities or hardcoded secrets\n"
         "- Ensure code follows existing project conventions\n"
+        "- If writing tests, verify test assertions match the implementation logic. "
+        "For example, a short password like 'Ab1!' still has mixed case + digit + special char (score 3), "
+        "so do not assert score < 2 for it. Use truly weak inputs like 'abc' for low-score tests.\n"
     )
 
     workspace_files = _read_workspace_files(workspace)
