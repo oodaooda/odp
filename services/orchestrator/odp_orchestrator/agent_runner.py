@@ -127,15 +127,29 @@ async def run_agent(
     github_repo: str | None = None,
     github_token: str | None = None,
 ) -> AgentResult:
-    # Per-task, per-role isolated workspace.
-    ws_root = cfg.workspaces_root / str(project_id) / str(task_id) / str(role)
-    branch = None
-    if os.getenv("ODP_AGENT_TEST_MODE", "0") != "1" and role == AgentRole.engineer:
-        branch = f"odp/task-{str(task_id)[:8]}"
-    workspace, work_branch = await _ensure_workspace_repo(
-        repo_root=cfg.repo_root, workspace_root=ws_root, branch=branch,
-        github_repo=github_repo, github_token=github_token,
-    )
+    # Per-task workspace. QA and security reuse the engineer's workspace
+    # (where the generated code lives) instead of a fresh clone.
+    if role in (AgentRole.qa, AgentRole.security) and github_repo:
+        eng_repo = (cfg.workspaces_root / str(project_id) / str(task_id) / "engineer" / "repo").resolve()
+        if eng_repo.exists() and (eng_repo / ".git").exists():
+            workspace = eng_repo
+            work_branch = None
+        else:
+            # Engineer workspace not ready; fall back to own workspace.
+            ws_root = cfg.workspaces_root / str(project_id) / str(task_id) / str(role)
+            workspace, work_branch = await _ensure_workspace_repo(
+                repo_root=cfg.repo_root, workspace_root=ws_root, branch=None,
+                github_repo=github_repo, github_token=github_token,
+            )
+    else:
+        ws_root = cfg.workspaces_root / str(project_id) / str(task_id) / str(role)
+        branch = None
+        if os.getenv("ODP_AGENT_TEST_MODE", "0") != "1" and role == AgentRole.engineer:
+            branch = f"odp/task-{str(task_id)[:8]}"
+        workspace, work_branch = await _ensure_workspace_repo(
+            repo_root=cfg.repo_root, workspace_root=ws_root, branch=branch,
+            github_repo=github_repo, github_token=github_token,
+        )
 
     art_dir = cfg.artifacts_root / str(project_id) / str(task_id) / "agents" / str(role)
     art_dir.mkdir(parents=True, exist_ok=True)
