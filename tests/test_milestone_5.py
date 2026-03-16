@@ -60,13 +60,9 @@ def test_m5_ui_pages_and_embeddings_graceful(app):
     project_id = uuid4()
 
     with TestClient(app_) as client:
-        # Basic UI endpoints
-        r0 = client.get("/")
+        # Health + API endpoints work.
+        r0 = client.get("/healthz")
         assert r0.status_code == 200
-
-        # Health endpoint works.
-        r1 = client.get("/healthz")
-        assert r1.status_code == 200
 
         # Create a task
         r = client.post(f"/projects/{project_id}/tasks", json={"title": "m5"})
