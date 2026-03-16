@@ -123,7 +123,7 @@ def _apply_diff(workspace: Path, diff_text: str, artifacts_dir: Path) -> tuple[b
     """Apply a unified diff to the workspace. Returns (success, log)."""
     # Extract diff from LLM response (it might have markdown fences).
     lines = diff_text.strip().splitlines()
-    diff_lines = []
+    diff_lines: list[str] = []
     in_diff = False
     for line in lines:
         if line.startswith("```"):
@@ -139,16 +139,29 @@ def _apply_diff(workspace: Path, diff_text: str, artifacts_dir: Path) -> tuple[b
     if not diff_lines:
         diff_lines = lines
 
-    clean_diff = "\n".join(diff_lines) + "\n"
+    # Clean up stray blank lines between file diffs that break git apply.
+    cleaned: list[str] = []
+    for i, line in enumerate(diff_lines):
+        # Skip blank lines that appear right before a new file diff header.
+        if line.strip() == "" and i + 1 < len(diff_lines) and diff_lines[i + 1].startswith("---"):
+            continue
+        cleaned.append(line)
+
+    clean_diff = "\n".join(cleaned) + "\n"
     diff_path = artifacts_dir / "llm_generated.patch"
     _write(diff_path, clean_diff)
 
+    # Try git apply first; if it fails, fall back to writing files directly.
     result = _run(
         ["git", "apply", "--check", str(diff_path)],
         cwd=workspace, timeout_s=30,
     )
     if result.returncode != 0:
-        return False, f"git apply --check failed:\n{result.stdout}"
+        # Fallback: parse the diff and write files directly.
+        fb_ok, fb_log = _apply_diff_fallback(workspace, cleaned)
+        if fb_ok:
+            return True, "diff applied via fallback (direct file write)"
+        return False, f"git apply --check failed: {result.stdout}\nFallback also failed: {fb_log}"
 
     result = _run(
         ["git", "apply", str(diff_path)],
@@ -158,6 +171,46 @@ def _apply_diff(workspace: Path, diff_text: str, artifacts_dir: Path) -> tuple[b
         return False, f"git apply failed:\n{result.stdout}"
 
     return True, "diff applied successfully"
+
+
+def _apply_diff_fallback(workspace: Path, diff_lines: list[str]) -> tuple[bool, str]:
+    """Fallback: parse unified diff for new files and write them directly."""
+    current_file: str | None = None
+    current_lines: list[str] = []
+    files_written = 0
+
+    def _flush() -> None:
+        nonlocal files_written
+        if current_file and current_lines:
+            path = workspace / current_file
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("\n".join(current_lines) + "\n")
+            files_written += 1
+
+    for line in diff_lines:
+        if line.startswith("+++ b/"):
+            _flush()
+            current_file = line[6:]
+            current_lines = []
+        elif line.startswith("+++ /dev/null"):
+            # File deletion — skip.
+            _flush()
+            current_file = None
+            current_lines = []
+        elif line.startswith("---") or line.startswith("@@") or line.startswith("diff --git"):
+            continue
+        elif line.startswith("+"):
+            current_lines.append(line[1:])
+        elif line.startswith("-"):
+            continue  # Can only handle new file additions in fallback.
+        elif not line.startswith("\\"):
+            # Context line (no prefix) — include as-is.
+            current_lines.append(line)
+    _flush()
+
+    if files_written > 0:
+        return True, f"wrote {files_written} file(s)"
+    return False, "no files extracted from diff"
 
 
 def _engineer(workspace: Path, artifacts_dir: Path) -> AgentOutput:
