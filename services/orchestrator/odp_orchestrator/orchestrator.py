@@ -418,6 +418,23 @@ class Orchestrator:
         )
         await self._write_gate(d)
 
+    async def _resolve_project_github(self, project_id: UUID) -> tuple[str, str]:
+        """Get the GitHub repo and token for a project from Redis."""
+        repo = ""
+        token = ""
+        try:
+            raw = await self.store.redis.get(f"odp:project:{project_id}:meta")
+            if raw:
+                import json as _json
+                meta = _json.loads(raw if isinstance(raw, str) else raw.decode())
+                repo = meta.get("github_repo", "")
+        except Exception:
+            pass
+        if repo:
+            from .github import resolve_github_token
+            token = await resolve_github_token(project_id, self.store.redis)
+        return repo, token
+
     async def _run_with_retries(
         self,
         *,
@@ -431,6 +448,7 @@ class Orchestrator:
         attempt = 0
         backoffs = [0.2, 0.5, 1.0]
         feedback: str | None = None
+        gh_repo, gh_token = await self._resolve_project_github(project_id)
         while True:
             res = await run_agent(
                 cfg=self.agent_cfg,
@@ -440,6 +458,8 @@ class Orchestrator:
                 expected_spec_hash=expected_spec_hash,
                 task_context=task_context,
                 feedback=feedback,
+                github_repo=gh_repo or None,
+                github_token=gh_token or None,
             )
             retryable = (
                 ("parse failure" in res.summary.lower())

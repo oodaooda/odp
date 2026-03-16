@@ -40,12 +40,13 @@ async def _run_local_cmd(*cmd: str, cwd: Path, timeout_s: int) -> tuple[int, str
 
 
 async def _ensure_workspace_repo(
-    *, repo_root: Path, workspace_root: Path, branch: str | None
+    *, repo_root: Path, workspace_root: Path, branch: str | None,
+    github_repo: str | None = None, github_token: str | None = None,
 ) -> tuple[Path, str | None]:
     """Create an isolated workspace repo.
 
-    - Real mode: git worktree checkout under workspace_root/repo.
-    - If `branch` is provided, creates a branch-per-task worktree.
+    - If github_repo is set: clone from GitHub (preferred for external projects).
+    - Otherwise: git worktree checkout from local repo_root.
     - Test mode: no checkout (workspace_root used directly).
     """
     workspace_root.mkdir(parents=True, exist_ok=True)
@@ -57,6 +58,30 @@ async def _ensure_workspace_repo(
     if (ws_repo / ".git").exists():
         return ws_repo, branch
 
+    # If a GitHub repo is configured, clone it instead of using a local worktree.
+    if github_repo:
+        if github_token:
+            clone_url = f"https://x-access-token:{github_token}@github.com/{github_repo}.git"
+        else:
+            clone_url = f"https://github.com/{github_repo}.git"
+        rc, out = await _run_local_cmd(
+            "git", "clone", "--depth", "1", clone_url, str(ws_repo),
+            cwd=workspace_root, timeout_s=120,
+        )
+        if rc != 0:
+            import logging
+            logging.getLogger(__name__).warning("git clone failed: %s", out)
+            # Fall through to worktree method.
+        else:
+            # Create a working branch if needed.
+            if branch:
+                await _run_local_cmd(
+                    "git", "checkout", "-b", branch,
+                    cwd=ws_repo, timeout_s=30,
+                )
+            return ws_repo, branch
+
+    # Fallback: local git worktree from repo_root.
     cmd = ["git", "worktree", "add"]
     if branch:
         cmd += ["-b", branch]
@@ -86,13 +111,18 @@ async def run_agent(
     expected_spec_hash: str | None = None,
     task_context: dict[str, Any] | None = None,
     feedback: str | None = None,
+    github_repo: str | None = None,
+    github_token: str | None = None,
 ) -> AgentResult:
     # Per-task, per-role isolated workspace.
     ws_root = cfg.workspaces_root / str(project_id) / str(task_id) / str(role)
     branch = None
     if os.getenv("ODP_AGENT_TEST_MODE", "0") != "1" and role == AgentRole.engineer:
         branch = f"odp/task-{str(task_id)[:8]}"
-    workspace, work_branch = await _ensure_workspace_repo(repo_root=cfg.repo_root, workspace_root=ws_root, branch=branch)
+    workspace, work_branch = await _ensure_workspace_repo(
+        repo_root=cfg.repo_root, workspace_root=ws_root, branch=branch,
+        github_repo=github_repo, github_token=github_token,
+    )
 
     art_dir = cfg.artifacts_root / str(project_id) / str(task_id) / "agents" / str(role)
     art_dir.mkdir(parents=True, exist_ok=True)
