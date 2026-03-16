@@ -147,7 +147,18 @@ def _apply_diff(workspace: Path, diff_text: str, artifacts_dir: Path) -> tuple[b
             continue
         cleaned.append(line)
 
-    clean_diff = "\n".join(cleaned) + "\n"
+    # Fix hunk headers: LLMs often get line counts wrong, causing git apply
+    # to silently truncate files. Recalculate the counts.
+    fixed: list[str] = []
+    for line in cleaned:
+        if line.startswith("@@"):
+            # Recalculate will happen below after grouping hunks.
+            fixed.append(line)
+        else:
+            fixed.append(line)
+    fixed = _fix_hunk_counts(fixed)
+
+    clean_diff = "\n".join(fixed) + "\n"
     diff_path = artifacts_dir / "llm_generated.patch"
     _write(diff_path, clean_diff)
 
@@ -171,6 +182,47 @@ def _apply_diff(workspace: Path, diff_text: str, artifacts_dir: Path) -> tuple[b
         return False, f"git apply failed:\n{result.stdout}"
 
     return True, "diff applied successfully"
+
+
+def _fix_hunk_counts(lines: list[str]) -> list[str]:
+    """Recalculate @@ hunk line counts — LLMs frequently get these wrong."""
+    result: list[str] = []
+    i = 0
+    while i < len(lines):
+        if not lines[i].startswith("@@"):
+            result.append(lines[i])
+            i += 1
+            continue
+        # Found a hunk header. Count actual content lines until next hunk/file header.
+        hunk_start = i
+        i += 1
+        old_count = 0
+        new_count = 0
+        content_lines: list[str] = []
+        while i < len(lines) and not lines[i].startswith("@@") and not lines[i].startswith("---"):
+            ln = lines[i]
+            if ln.startswith("+"):
+                new_count += 1
+            elif ln.startswith("-"):
+                old_count += 1
+            elif not ln.startswith("\\"):
+                # Context line.
+                old_count += 1
+                new_count += 1
+            content_lines.append(ln)
+            i += 1
+        # Parse original hunk header for start lines.
+        import re
+        m = re.match(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)", lines[hunk_start])
+        if m:
+            old_start = m.group(1)
+            new_start = m.group(2)
+            trailer = m.group(3)
+            result.append(f"@@ -{old_start},{old_count} +{new_start},{new_count} @@{trailer}")
+        else:
+            result.append(lines[hunk_start])
+        result.extend(content_lines)
+    return result
 
 
 def _apply_diff_fallback(workspace: Path, diff_lines: list[str]) -> tuple[bool, str]:
