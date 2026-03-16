@@ -4,36 +4,69 @@ import { listChat, sendChat } from "../api/client";
 import { usePollingRefresh } from "../hooks/useLiveRefresh";
 import type { ChatMessage } from "../api/types";
 
+const BASE = import.meta.env.VITE_API_URL ?? "";
+
+function authHeaders(): Record<string, string> {
+  const token = localStorage.getItem("odp_token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+async function clearChatApi(projectId: string): Promise<void> {
+  await fetch(`${BASE}/projects/${projectId}/chat`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+}
+
 export default function Chat() {
   const { projectId } = useParams<{ projectId: string }>();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  // Whether we should auto-scroll on the next messages update.
+  const shouldScrollRef = useRef(true);
+
+  const isNearBottom = () => {
+    const el = containerRef.current;
+    if (!el) return true;
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+  };
+
+  const scrollToBottom = (smooth = true) => {
+    bottomRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "instant" });
+  };
 
   const refresh = useCallback(async () => {
     if (!projectId) return;
     const c = await listChat(projectId).catch(() => ({ messages: [] }));
+    // API returns oldest-first; preserve that order.
     setMessages(c.messages ?? []);
   }, [projectId]);
 
   useEffect(() => {
-    refresh();
+    refresh().then(() => scrollToBottom(false));
   }, [refresh]);
 
-  // Poll every 3s for new messages (chat doesn't have a task-specific WS)
-  usePollingRefresh(refresh, 3000);
-
+  // Only auto-scroll on poll if already near bottom.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (shouldScrollRef.current || isNearBottom()) {
+      scrollToBottom();
+      shouldScrollRef.current = false;
+    }
   }, [messages]);
+
+  // Poll every 3s for new messages.
+  usePollingRefresh(refresh, 3000);
 
   const handleSend = async () => {
     if (!input.trim() || !projectId || sending) return;
     const text = input.trim();
     setSending(true);
+    shouldScrollRef.current = true;
 
-    // Optimistic: show message immediately
     setMessages((prev) => [
       ...prev,
       {
@@ -50,10 +83,9 @@ export default function Chat() {
 
     try {
       await sendChat(projectId, text);
-      // Refresh to get the real message with server ID
+      shouldScrollRef.current = true;
       await refresh();
     } catch {
-      // Remove optimistic message on failure
       setMessages((prev) => prev.filter((m) => !m.id.startsWith("optimistic-")));
       setInput(text);
     } finally {
@@ -61,17 +93,36 @@ export default function Chat() {
     }
   };
 
+  const handleClear = async () => {
+    if (!projectId || clearing) return;
+    setClearing(true);
+    try {
+      await clearChatApi(projectId);
+      setMessages([]);
+    } finally {
+      setClearing(false);
+    }
+  };
+
   return (
     <>
       <div className="page-header">
-        <div style={{ display: "flex", alignItems: "baseline" }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
           <h2>Orchestrator Chat</h2>
           <span className="subtitle">Project: Orchestrated Dev Platform</span>
         </div>
+        <button
+          className="btn btn-secondary"
+          onClick={handleClear}
+          disabled={clearing || messages.length === 0}
+          style={{ marginLeft: "auto" }}
+        >
+          {clearing ? "Clearing…" : "Clear Chat"}
+        </button>
       </div>
 
       <div className="card chat-container">
-        <div className="chat-messages">
+        <div className="chat-messages" ref={containerRef}>
           {messages.length === 0 && (
             <p className="text-muted" style={{ textAlign: "center", marginTop: 40 }}>
               No messages yet. Start a conversation with the orchestrator.
@@ -97,7 +148,7 @@ export default function Chat() {
             disabled={sending}
           />
           <button className="btn btn-primary" onClick={handleSend} disabled={sending}>
-            {sending ? "..." : "Send"}
+            {sending ? "…" : "Send"}
           </button>
         </div>
       </div>

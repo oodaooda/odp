@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { listMemoryEvents } from "../api/client";
 import { usePollingRefresh } from "../hooks/useLiveRefresh";
 import type { MemoryEvent } from "../api/types";
+import { formatTime } from "../utils/date";
 
 export default function AuditLog() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -49,18 +50,18 @@ export default function AuditLog() {
               {events.map((e) => (
                 <tr key={e.id}>
                   <td className="mono">
-                    {new Date(e.created_at).toISOString().slice(11, 19)}
+                    {formatTime(e.created_at)}
                   </td>
                   <td>
                     <span
                       className={`status status-${typeColor(e.event_type)}`}
                     >
-                      {e.event_type.toUpperCase()}
+                      {(e.event_type ?? "unknown").toUpperCase()}
                     </span>
                   </td>
                   <td>{summarize(e)}</td>
                   <td className="text-muted mono">
-                    {e.task_id ? e.task_id.slice(0, 8) : "—"}
+                    {e.task_id ? e.task_id.slice(0, 8) : "\u2014"}
                   </td>
                 </tr>
               ))}
@@ -80,8 +81,14 @@ function typeColor(t: string): string {
 }
 
 function summarize(e: MemoryEvent): string {
-  const p = e.payload as Record<string, string>;
-  if (e.event_type === "state_transition") return `${p.from} -> ${p.to}`;
+  const p = e.payload as Record<string, any>;
+  if (!p) return "";
+  if (e.event_type === "state_transition") {
+    // Payload may have {from, to} or just {state}
+    if (p.from && p.to) return `${p.from} -> ${p.to}`;
+    if (p.state) return `-> ${p.state}`;
+    return JSON.stringify(p).slice(0, 80);
+  }
   if (e.event_type === "message") return String(p.text ?? "").slice(0, 100);
   if (e.event_type === "decision") return String(p.decision ?? p.summary ?? "").slice(0, 100);
   if (e.event_type === "summary") return String(p.summary ?? "").slice(0, 100);

@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 from uuid import UUID
+
+logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect, Query, Request
 from fastapi.responses import JSONResponse
@@ -22,7 +25,7 @@ except Exception:  # pragma: no cover
 
 from .db import MemoryWriter, create_engine
 from .events import EventBus
-from .models import ChatMessageRequest, Task, TaskCreateRequest
+from .models import ChatMessageRequest, ProjectCreateRequest, ProjectUpdateRequest, SecretSetRequest, Task, TaskCreateRequest
 from .agent_runner import AgentRunConfig
 from .orchestrator import Orchestrator
 from .redis_store import RedisStore
@@ -271,16 +274,53 @@ def create_app() -> FastAPI:
             )
         return {"ok": True, "task_ids": [str(t1.task_id), str(t2.task_id), str(t3.task_id)]}
 
-    @app.get("/projects/{project_id}/tasks", response_model=list[Task])
-    async def list_tasks(project_id: UUID) -> list[Task]:
-        return await orch.list_tasks(project_id)
+    async def _hydrate_task(task: Task) -> dict[str, Any]:
+        """Resolve Redis key references in agent_results and gate_decisions to full objects."""
+        d = task.model_dump()
+        # Hydrate agent_results: resolve Redis keys to full AgentResult dicts.
+        hydrated_results = []
+        fallback = {"ok": False, "summary": "", "artifacts": [], "logs": [], "memory_entries": []}
+        for key in task.agent_results:
+            raw = await store.redis.get(key)
+            if raw:
+                try:
+                    obj = json.loads(raw if isinstance(raw, str) else raw.decode())
+                except Exception:
+                    obj = {**fallback, "role": key.split(":")[-1]}
+            else:
+                obj = {**fallback, "role": key.split(":")[-1]}
+            # Map model field 'role' to frontend field 'agent_role'.
+            if "role" in obj and "agent_role" not in obj:
+                obj["agent_role"] = obj["role"]
+            hydrated_results.append(obj)
+        d["agent_results"] = hydrated_results
+        # Hydrate gate_decisions: resolve Redis keys to full GateDecision dicts.
+        hydrated_gates = []
+        for key in task.gate_decisions:
+            raw = await store.redis.get(key)
+            if raw:
+                try:
+                    obj = json.loads(raw if isinstance(raw, str) else raw.decode())
+                    # Map model field 'phase' to frontend field 'gate_phase'.
+                    if "phase" in obj and "gate_phase" not in obj:
+                        obj["gate_phase"] = obj["phase"]
+                    hydrated_gates.append(obj)
+                except Exception:
+                    pass
+        d["gate_decisions"] = hydrated_gates
+        return d
 
-    @app.get("/projects/{project_id}/tasks/{task_id}", response_model=Task)
-    async def get_task(project_id: UUID, task_id: UUID) -> Task:
+    @app.get("/projects/{project_id}/tasks")
+    async def list_tasks(project_id: UUID) -> list[dict[str, Any]]:
+        tasks = await orch.list_tasks(project_id)
+        return [await _hydrate_task(t) for t in tasks]
+
+    @app.get("/projects/{project_id}/tasks/{task_id}")
+    async def get_task(project_id: UUID, task_id: UUID) -> dict[str, Any]:
         t = await orch.get_task(project_id, task_id)
         if not t:
             raise HTTPException(status_code=404, detail="not found")
-        return t
+        return await _hydrate_task(t)
 
     @app.post("/projects/{project_id}/chat")
     async def chat(project_id: UUID, req: ChatMessageRequest) -> dict[str, Any]:
@@ -337,7 +377,7 @@ def create_app() -> FastAPI:
                                 "total": total.model_dump(),
                             })
             except Exception:
-                pass  # Fallback: static reply
+                logger.exception("LLM chat reply failed")  # Fallback: static reply
 
             if not reply_text:
                 reply_text = (
@@ -366,7 +406,14 @@ def create_app() -> FastAPI:
         limit: int = Query(default=200, ge=1, le=1000),
     ) -> dict[str, Any]:
         msgs = await memory.list_chat_messages(project_id=project_id, task_id=task_id, limit=limit)
+        # Return oldest-first so the frontend can render in chronological order.
+        msgs = list(reversed(msgs))
         return {"messages": msgs}
+
+    @app.delete("/projects/{project_id}/chat")
+    async def clear_chat(project_id: UUID, task_id: UUID | None = None) -> dict[str, Any]:
+        await memory.delete_chat_messages(project_id=project_id, task_id=task_id)
+        return {"ok": True}
 
     @app.post("/projects/{project_id}/chat/compact")
     async def compact_chat(project_id: UUID, req: CompactChatRequest) -> dict[str, Any]:
@@ -646,6 +693,15 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=400, detail="task not cancellable (already terminal or not found)")
         return {"ok": True}
 
+    @app.delete("/projects/{project_id}/tasks/{task_id}")
+    async def delete_task(project_id: UUID, task_id: UUID) -> dict[str, Any]:
+        """Delete a task and its associated Redis keys."""
+        prefix = f"odp:{project_id}:task:{task_id}"
+        # Remove task key and all sub-keys (agent results, gates, etc.)
+        async for key in store.redis.scan_iter(f"{prefix}*"):
+            await store.redis.delete(key)
+        return {"ok": True}
+
     @app.post("/projects/{project_id}/resume")
     async def resume(project_id: UUID) -> dict[str, Any]:
         n = await orch.resume_incomplete(project_id)
@@ -672,11 +728,6 @@ def create_app() -> FastAPI:
                     pass
         return {"projects": projects}
 
-    class ProjectCreateRequest(BaseModel):
-        name: str = Field(min_length=1, max_length=200)
-        github_repo: str = Field(default="", max_length=200)
-        default_branch: str = Field(default="main", max_length=100)
-
     @app.post("/projects")
     async def create_project(req: ProjectCreateRequest) -> dict[str, Any]:
         from uuid import uuid4
@@ -690,18 +741,15 @@ def create_app() -> FastAPI:
         await redis.set(f"odp:project:{project_id}:meta", json.dumps(meta))
         return meta
 
-    class ProjectUpdateRequest(BaseModel):
-        name: str | None = Field(default=None, max_length=200)
-        github_repo: str | None = Field(default=None, max_length=200)
-        default_branch: str | None = Field(default=None, max_length=100)
-
     @app.patch("/projects/{project_id}")
     async def update_project(project_id: UUID, req: ProjectUpdateRequest) -> dict[str, Any]:
         key = f"odp:project:{project_id}:meta"
         raw = await redis.get(key)
         if not raw:
-            raise HTTPException(status_code=404, detail="not found")
-        meta = json.loads(raw if isinstance(raw, str) else raw.decode("utf-8"))
+            # Auto-create if this is the fallback project or a valid UUID.
+            meta = {"project_id": str(project_id), "name": "", "github_repo": "", "default_branch": "main"}
+        else:
+            meta = json.loads(raw if isinstance(raw, str) else raw.decode("utf-8"))
         if req.name is not None:
             meta["name"] = req.name
         if req.github_repo is not None:
@@ -710,6 +758,46 @@ def create_app() -> FastAPI:
             meta["default_branch"] = req.default_branch
         await redis.set(key, json.dumps(meta))
         return meta
+
+    # ── Secrets (server-side only, never returned in full) ──
+
+    _SECRETS_PREFIX = "odp:secrets:"
+
+    @app.get("/projects/{project_id}/secrets/{secret_name}")
+    async def get_secret_status(project_id: UUID, secret_name: str) -> dict[str, Any]:
+        """Check if a secret is set. Returns masked value, never the real one."""
+        allowed = {"github_token"}
+        if secret_name not in allowed:
+            raise HTTPException(status_code=400, detail=f"Unknown secret: {secret_name}")
+        key = f"{_SECRETS_PREFIX}{project_id}:{secret_name}"
+        raw = await redis.get(key)
+        if raw:
+            val = raw if isinstance(raw, str) else raw.decode()
+            masked = val[:4] + "*" * (len(val) - 8) + val[-4:] if len(val) > 8 else "****"
+            return {"set": True, "masked": masked}
+        # Fall back to env var.
+        env_val = os.getenv("ODP_GITHUB_TOKEN", "")
+        if env_val:
+            masked = env_val[:4] + "*" * (len(env_val) - 8) + env_val[-4:] if len(env_val) > 8 else "****"
+            return {"set": True, "masked": masked, "source": "env"}
+        return {"set": False, "masked": ""}
+
+    @app.put("/projects/{project_id}/secrets/{secret_name}")
+    async def set_secret(project_id: UUID, secret_name: str, req: SecretSetRequest) -> dict[str, Any]:
+        """Store a secret in Redis (server-side only)."""
+        allowed = {"github_token"}
+        if secret_name not in allowed:
+            raise HTTPException(status_code=400, detail=f"Unknown secret: {secret_name}")
+        key = f"{_SECRETS_PREFIX}{project_id}:{secret_name}"
+        await redis.set(key, req.value)
+        return {"ok": True}
+
+    @app.delete("/projects/{project_id}/secrets/{secret_name}")
+    async def delete_secret(project_id: UUID, secret_name: str) -> dict[str, Any]:
+        """Remove a secret from Redis."""
+        key = f"{_SECRETS_PREFIX}{project_id}:{secret_name}"
+        await redis.delete(key)
+        return {"ok": True}
 
     # ── GitHub Webhook ──
 

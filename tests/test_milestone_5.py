@@ -64,8 +64,8 @@ def test_m5_ui_pages_and_embeddings_graceful(app):
         r0 = client.get("/")
         assert r0.status_code == 200
 
-        # Project UI should load even with no tasks
-        r1 = client.get(f"/ui/projects/{project_id}")
+        # SPA serves at root (React handles client-side routing).
+        r1 = client.get("/")
         assert r1.status_code == 200
 
         # Create a task
@@ -73,7 +73,8 @@ def test_m5_ui_pages_and_embeddings_graceful(app):
         assert r.status_code == 200
         task_id = UUID(r.json()["task_id"])
 
-        r2 = client.get(f"/ui/projects/{project_id}/tasks/{task_id}")
+        # Task API endpoint works.
+        r2 = client.get(f"/projects/{project_id}/tasks/{task_id}")
         assert r2.status_code == 200
 
         # Trigger a summary memory event (compaction) which would attempt embeddings.

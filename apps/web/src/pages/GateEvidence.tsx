@@ -133,7 +133,9 @@ export default function GateEvidence() {
                       </span>
                     </td>
                     <td className="text-muted">
-                      evidence: {g.evidence.join(", ") || "-"}
+                      {typeof g.evidence === "object" && !Array.isArray(g.evidence)
+                        ? (g.evidence as any)?.summary || ((g as any).reason ?? "-")
+                        : Array.isArray(g.evidence) ? g.evidence.join(", ") || "-" : "-"}
                     </td>
                   </tr>
                 ))}
@@ -146,10 +148,12 @@ export default function GateEvidence() {
         <div className="card">
           <h3>Evidence Viewer</h3>
           {selectedEvidence ? (
-            <div className="evidence-viewer">
-              {selectedEvidence.evidence.length > 0
+            <div className="evidence-viewer" style={{ whiteSpace: "pre-wrap" }}>
+              {typeof selectedEvidence.evidence === "object" && !Array.isArray(selectedEvidence.evidence)
+                ? JSON.stringify(selectedEvidence.evidence, null, 2)
+                : Array.isArray(selectedEvidence.evidence) && selectedEvidence.evidence.length > 0
                 ? selectedEvidence.evidence.join("\n")
-                : "No evidence attached."}
+                : (selectedEvidence as any).reason || "No evidence attached."}
             </div>
           ) : (
             <p className="text-muted text-sm">

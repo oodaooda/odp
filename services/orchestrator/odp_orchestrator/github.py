@@ -1,7 +1,7 @@
 """GitHub integration: PR creation and status checks.
 
-Config-gated via ODP_GITHUB_TOKEN env var. When not set, all operations
-are no-ops and return None.
+Config-gated via ODP_GITHUB_TOKEN env var or per-project secret in Redis.
+When not set, all operations are no-ops and return None.
 """
 from __future__ import annotations
 
@@ -9,8 +9,22 @@ import logging
 import os
 from dataclasses import dataclass
 from typing import Any
+from uuid import UUID
 
 logger = logging.getLogger(__name__)
+
+
+async def resolve_github_token(project_id: UUID | str, redis: Any = None) -> str:
+    """Get GitHub token: check Redis per-project secret first, then env var."""
+    if redis:
+        try:
+            key = f"odp:secrets:{project_id}:github_token"
+            raw = await redis.get(key)
+            if raw:
+                return raw if isinstance(raw, str) else raw.decode()
+        except Exception:
+            pass
+    return os.getenv("ODP_GITHUB_TOKEN", "")
 
 
 @dataclass

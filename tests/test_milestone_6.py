@@ -86,8 +86,8 @@ def test_m6_search_fallback_and_ui(app):
         if results:
             assert "artifacts" in results[0]
 
-        # UI pages render
-        ui1 = client.get(f"/ui/projects/{project_id}")
+        # SPA serves at root; task API works.
+        ui1 = client.get("/")
         assert ui1.status_code == 200
-        ui2 = client.get(f"/ui/projects/{project_id}/tasks/{task_id}")
+        ui2 = client.get(f"/projects/{project_id}/tasks/{task_id}")
         assert ui2.status_code == 200

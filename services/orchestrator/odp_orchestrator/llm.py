@@ -40,6 +40,8 @@ def _estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
         "claude-haiku-4-5-20251001": (0.80, 4.0),
         "gpt-4o": (2.5, 10.0),
         "gpt-4o-mini": (0.15, 0.60),
+        "gpt-5.3-codex": (2.0, 8.0),
+        "gpt-5.4": (2.5, 10.0),
     }
     in_rate, out_rate = rates.get(model, (3.0, 15.0))
     return (input_tokens * in_rate + output_tokens * out_rate) / 1_000_000
@@ -115,6 +117,11 @@ async def _call_anthropic(
     )
 
 
+def _needs_responses_api(model: str) -> bool:
+    """Check if a model requires the Responses API instead of Chat Completions."""
+    return "codex" in model.lower()
+
+
 async def _call_openai(
     *, model: str, api_key: str, system: str,
     messages: list[dict[str, str]], max_tokens: int, t0: float,
@@ -125,6 +132,13 @@ async def _call_openai(
         raise RuntimeError("openai package not installed. Run: pip install openai")
 
     client = openai.AsyncOpenAI(api_key=api_key)
+
+    if _needs_responses_api(model):
+        return await _call_openai_responses(
+            client=client, model=model, system=system,
+            messages=messages, max_tokens=max_tokens, t0=t0,
+        )
+
     oai_messages: list[dict[str, str]] = [{"role": "system", "content": system}]
     oai_messages.extend(messages)
     resp = await client.chat.completions.create(
@@ -138,6 +152,45 @@ async def _call_openai(
     usage = resp.usage
     in_tok = usage.prompt_tokens if usage else 0
     out_tok = usage.completion_tokens if usage else 0
+    return LLMResponse(
+        text=text, model=model,
+        input_tokens=in_tok, output_tokens=out_tok,
+        latency_ms=latency,
+        cost_estimate=_estimate_cost(model, in_tok, out_tok),
+    )
+
+
+async def _call_openai_responses(
+    *, client: Any, model: str, system: str,
+    messages: list[dict[str, str]], max_tokens: int, t0: float,
+) -> LLMResponse:
+    """Call OpenAI Responses API (required for codex models)."""
+    instructions = system
+    # Build input items from message history.
+    input_items: list[dict[str, Any]] = []
+    for m in messages:
+        input_items.append({
+            "role": m["role"],
+            "content": m["content"],
+        })
+
+    resp = await client.responses.create(
+        model=model,
+        instructions=instructions,
+        input=input_items,
+        max_output_tokens=max_tokens,
+    )
+    latency = int((time.monotonic() - t0) * 1000)
+    # Extract text from response output.
+    text = ""
+    for item in (resp.output or []):
+        if hasattr(item, "content"):
+            for block in (item.content or []):
+                if hasattr(block, "text"):
+                    text += block.text
+    usage = resp.usage
+    in_tok = getattr(usage, "input_tokens", 0) if usage else 0
+    out_tok = getattr(usage, "output_tokens", 0) if usage else 0
     return LLMResponse(
         text=text, model=model,
         input_tokens=in_tok, output_tokens=out_tok,

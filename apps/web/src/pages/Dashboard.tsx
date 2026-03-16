@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { listTasks, listChat, sendChat, seedDemo, createTask, searchMemory } from "../api/client";
+import { listTasks, listChat, sendChat, seedDemo, createTask, searchMemory, deleteTask } from "../api/client";
 import { usePollingRefresh } from "../hooks/useLiveRefresh";
 import { useProjectSocket } from "../hooks/useProjectSocket";
 import { useToast } from "../components/Toast";
 import type { Task, ChatMessage, MemoryEvent } from "../api/types";
+import { formatDate } from "../utils/date";
 
 function timeAgo(ms: number): string {
   const diff = Date.now() - ms;
@@ -219,6 +220,7 @@ export default function Dashboard() {
                   <th>Status</th>
                   <th>Phase</th>
                   <th>Updated</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -242,7 +244,24 @@ export default function Dashboard() {
                     </td>
                     <td>{t.state}</td>
                     <td className="text-muted">
-                      {new Date(t.updated_at_ms).toISOString().slice(0, 19) + "Z"}
+                      {formatDate(t.updated_at_ms)}
+                    </td>
+                    <td>
+                      {(t.state === "ROLLBACK" || t.state === "COMMIT") && (
+                        <button
+                          className="btn btn-sm"
+                          style={{ fontSize: 11, padding: "2px 8px", background: "var(--accent-red)", color: "#fff" }}
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            if (!projectId) return;
+                            await deleteTask(projectId, t.task_id);
+                            toast("Task deleted", "info");
+                            refresh();
+                          }}
+                        >
+                          Delete
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -330,7 +349,7 @@ export default function Dashboard() {
                           {a.agent_role}
                         </div>
                         <div className="text-sm text-muted">
-                          Task {a.taskId.slice(0, 8)}
+                          Task {a.taskId?.slice(0, 8)}
                         </div>
                       </div>
                       <span className={`status status-${a.ok ? "active" : "failed"}`}>

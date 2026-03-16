@@ -617,7 +617,10 @@ class Orchestrator:
         if not repo:
             return
         try:
-            from .github import create_pr
+            from .github import create_pr, resolve_github_token
+            gh_token = await resolve_github_token(t.project_id, self.store.redis)
+            if not gh_token:
+                return
             branch = f"odp/task-{str(t.task_id)[:8]}"
             # Build PR body from gate evidence.
             body_parts = [f"## Task: {t.title}"]
@@ -637,6 +640,7 @@ class Orchestrator:
                 body="\n".join(body_parts),
                 head=branch,
                 base=os.getenv("ODP_GITHUB_DEFAULT_BRANCH", "main"),
+                token=gh_token,
             )
             if result:
                 # Store PR URL as artifact.

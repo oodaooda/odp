@@ -5,6 +5,7 @@ import { useLiveRefresh } from "../hooks/useLiveRefresh";
 import { useToast } from "../components/Toast";
 import type { Task, MemoryEvent, Artifact, AgentMemory, TokenUsage } from "../api/types";
 import StateTimeline from "../components/StateTimeline";
+import { formatDate, formatTime } from "../utils/date";
 
 export default function TaskDetail() {
   const { projectId, taskId } = useParams<{
@@ -101,7 +102,7 @@ export default function TaskDetail() {
       {/* Header */}
       <div className="page-header">
         <div style={{ display: "flex", alignItems: "baseline" }}>
-          <h2>Task Detail: {task.task_id.slice(0, 12)}</h2>
+          <h2>Task Detail: {task.task_id?.slice(0, 12)}</h2>
           <span className="subtitle">Project: Orchestrated Dev Platform</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -144,7 +145,7 @@ export default function TaskDetail() {
             </div>
             <div>
               <span className="text-muted text-sm">created_at: </span>
-              {new Date(task.created_at_ms).toISOString().slice(0, 19) + "Z"}
+              {formatDate(task.created_at_ms)}
             </div>
             <div>
               <span className="text-muted text-sm">updated_at: </span>
@@ -207,7 +208,7 @@ export default function TaskDetail() {
                       </span>
                     </td>
                     <td className="text-muted text-sm">
-                      {r.summary || `artifacts: ${r.artifacts.length}`}
+                      {r.summary || `artifacts: ${r.artifacts?.length ?? 0}`}
                     </td>
                   </tr>
                 ))}
@@ -313,7 +314,7 @@ export default function TaskDetail() {
                   <td style={{ textTransform: "capitalize" }}>{pm.agent_role}</td>
                   <td>{pm.memory_type}</td>
                   <td className="text-sm" style={{ maxWidth: 400, overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {pm.content.slice(0, 200)}
+                    {(pm.content ?? "").slice(0, 200)}
                   </td>
                   <td>
                     <div style={{ display: "flex", gap: 4 }}>
@@ -359,7 +360,7 @@ export default function TaskDetail() {
               {events.slice(-20).map((e) => (
                 <tr key={e.id}>
                   <td className="mono">
-                    {new Date(e.created_at).toISOString().slice(11, 19)}
+                    {formatTime(e.created_at)}
                   </td>
                   <td>
                     <span
@@ -376,7 +377,7 @@ export default function TaskDetail() {
                   </td>
                   <td>{summarizePayload(e)}</td>
                   <td className="text-muted mono">
-                    {e.task_id ? `task:${e.task_id.slice(0, 8)}` : ""}
+                    {e.task_id ? `task:${e.task_id?.slice(0, 8)}` : ""}
                   </td>
                 </tr>
               ))}
@@ -406,7 +407,7 @@ export default function TaskDetail() {
                     {a.uri.split("/").pop() || a.uri}
                   </td>
                   <td className="text-muted">
-                    {new Date(a.created_at).toISOString().slice(0, 19)}
+                    {formatDate(a.created_at)}
                   </td>
                   <td>
                     <div style={{ display: "flex", gap: 4 }}>

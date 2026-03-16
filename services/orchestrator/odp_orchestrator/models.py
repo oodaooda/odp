@@ -111,3 +111,19 @@ class ChatMessageRequest(BaseModel):
     text: str = Field(min_length=1, max_length=10_000)
     task_id: UUID | None = None
     actor: Literal["user", "orchestrator"] = "user"
+
+
+class ProjectCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    github_repo: str = Field(default="", max_length=200)
+    default_branch: str = Field(default="main", max_length=100)
+
+
+class ProjectUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, max_length=200)
+    github_repo: str | None = Field(default=None, max_length=200)
+    default_branch: str | None = Field(default=None, max_length=100)
+
+
+class SecretSetRequest(BaseModel):
+    value: str = Field(min_length=1, max_length=500)

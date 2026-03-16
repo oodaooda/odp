@@ -116,7 +116,7 @@ export default function Agents() {
                   </td>
                   <td className="text-muted">{a.summary || "—"}</td>
                   <td className="text-muted mono">
-                    {a.artifacts.length > 0 ? a.artifacts.join(", ") : "—"}
+                    {(a.artifacts?.length ?? 0) > 0 ? a.artifacts!.map((art: any) => (typeof art === "string" ? art : art.uri ?? art.type)).join(", ") : "—"}
                   </td>
                 </tr>
               ))}

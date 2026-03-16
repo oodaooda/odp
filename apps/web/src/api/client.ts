@@ -71,6 +71,11 @@ export const sendChat = (
     body: JSON.stringify({ text, task_id: taskId ?? null, actor: "user" }),
   });
 
+export const clearChat = (projectId: string, taskId?: string) => {
+  const params = taskId ? `?task_id=${taskId}` : "";
+  return api<{ ok: boolean }>(`/projects/${projectId}/chat${params}`, { method: "DELETE" });
+};
+
 /* ── Memory Events ── */
 
 export const listMemoryEvents = (
@@ -157,6 +162,11 @@ export const resumeTasks = (projectId: string) =>
 export const cancelTask = (projectId: string, taskId: string) =>
   api<{ ok: boolean }>(`/projects/${projectId}/tasks/${taskId}/cancel`, {
     method: "POST",
+  });
+
+export const deleteTask = (projectId: string, taskId: string) =>
+  api<{ ok: boolean }>(`/projects/${projectId}/tasks/${taskId}`, {
+    method: "DELETE",
   });
 
 export const getRole = async (): Promise<string | null> => {

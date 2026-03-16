@@ -76,17 +76,24 @@ def test_m2_agent_artifacts_and_gates(app):
         assert t is not None
         assert t["state"] == "COMMIT"
 
-        # Agent results recorded.
-        assert any("agent_result:engineer" in k for k in t["agent_results"])
-        assert any("agent_result:qa" in k for k in t["agent_results"])
-        assert any("agent_result:security" in k for k in t["agent_results"])
+        # Agent results recorded (hydrated dicts with role/agent_role field).
+        agent_roles = [r.get("role") or r.get("agent_role", r) if isinstance(r, dict) else r for r in t["agent_results"]]
+        assert "engineer" in agent_roles
+        assert "qa" in agent_roles
+        assert "security" in agent_roles
 
-        # Gate decisions recorded (assert phases present by key).
-        gates = "\n".join(t["gate_decisions"])
-        assert "phase_2_engineer" in gates
-        assert "phase_3_qa" in gates
-        assert "phase_4_security" in gates
-        assert "phase_5_ws" in gates
+        # Gate decisions recorded (hydrated dicts with gate_phase/phase field).
+        gate_phases = []
+        for g in t["gate_decisions"]:
+            if isinstance(g, dict):
+                gate_phases.append(g.get("phase") or g.get("gate_phase", ""))
+            else:
+                gate_phases.append(g)
+        gate_str = "\n".join(gate_phases)
+        assert "phase_2_engineer" in gate_str
+        assert "phase_3_qa" in gate_str
+        assert "phase_4_security" in gate_str
+        assert "phase_5_ws" in gate_str
 
         # Workspace isolation paths exist.
         ws = td / "workspaces" / str(project_id) / str(task_id)

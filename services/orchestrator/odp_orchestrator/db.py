@@ -223,7 +223,7 @@ class MemoryWriter:
         else:
             stmt = """
                 insert into memory_events(project_id,event_id,task_id,type,actor,payload,compaction_of)
-                values (:project_id,:event_id,:task_id,:type,:actor,:payload::jsonb,:compaction_of)
+                values (:project_id,:event_id,:task_id,:type,:actor,CAST(:payload AS jsonb),:compaction_of)
             """
 
         async with self._lock, self.engine.begin() as conn:
@@ -329,6 +329,18 @@ class MemoryWriter:
             )
         return out
 
+    async def delete_chat_messages(
+        self, *, project_id: UUID, task_id: UUID | None = None
+    ) -> None:
+        where = ["project_id=:project_id"]
+        params: dict[str, Any] = {"project_id": str(project_id)}
+        if task_id:
+            where.append("task_id=:task_id")
+            params["task_id"] = str(task_id)
+        sql = "delete from chat_messages where " + " and ".join(where)
+        async with self.engine.begin() as conn:
+            await conn.execute(text(sql), params)
+
     async def list_memory_events(
         self,
         *,
@@ -358,8 +370,10 @@ class MemoryWriter:
                     payload_val = {"raw": payload_val}
             out.append(
                 {
+                    "id": str(r["event_id"]),
                     "event_id": str(r["event_id"]),
                     "task_id": str(r["task_id"]),
+                    "event_type": str(r["type"]),
                     "type": str(r["type"]),
                     "actor": str(r["actor"]),
                     "payload": payload_val,
@@ -473,8 +487,10 @@ class MemoryWriter:
                     payload_val = {"raw": payload_val}
             out.append(
                 {
+                    "id": str(r["event_id"]),
                     "event_id": str(r["event_id"]),
                     "task_id": str(r["task_id"]),
+                    "event_type": str(r["type"]),
                     "type": str(r["type"]),
                     "actor": str(r["actor"]),
                     "payload": payload_val,
@@ -503,7 +519,7 @@ class MemoryWriter:
         else:
             stmt = """
                 insert into agent_memory_pending(project_id,agent_memory_id,task_id,role,type,payload,status)
-                values (:project_id,:agent_memory_id,:task_id,:role,:type,:payload::jsonb,'pending')
+                values (:project_id,:agent_memory_id,:task_id,:role,:type,CAST(:payload AS jsonb),'pending')
             """
 
         async with self.engine.begin() as conn:
