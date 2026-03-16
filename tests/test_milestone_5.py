@@ -64,8 +64,8 @@ def test_m5_ui_pages_and_embeddings_graceful(app):
         r0 = client.get("/")
         assert r0.status_code == 200
 
-        # SPA serves at root (React handles client-side routing).
-        r1 = client.get("/")
+        # Health endpoint works.
+        r1 = client.get("/healthz")
         assert r1.status_code == 200
 
         # Create a task

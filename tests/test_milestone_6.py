@@ -86,8 +86,8 @@ def test_m6_search_fallback_and_ui(app):
         if results:
             assert "artifacts" in results[0]
 
-        # SPA serves at root; task API works.
-        ui1 = client.get("/")
+        # Health endpoint works.
+        ui1 = client.get("/healthz")
         assert ui1.status_code == 200
         ui2 = client.get(f"/projects/{project_id}/tasks/{task_id}")
         assert ui2.status_code == 200
