@@ -129,6 +129,7 @@ async def run_agent(
 ) -> AgentResult:
     # Per-task workspace. QA and security reuse the engineer's workspace
     # (where the generated code lives) instead of a fresh clone.
+    ws_root = cfg.workspaces_root / str(project_id) / str(task_id) / str(role)
     if role in (AgentRole.qa, AgentRole.security) and github_repo:
         eng_repo = (cfg.workspaces_root / str(project_id) / str(task_id) / "engineer" / "repo").resolve()
         if eng_repo.exists() and (eng_repo / ".git").exists():
@@ -136,7 +137,6 @@ async def run_agent(
             work_branch = None
         else:
             # Engineer workspace not ready; fall back to own workspace.
-            ws_root = cfg.workspaces_root / str(project_id) / str(task_id) / str(role)
             workspace, work_branch = await _ensure_workspace_repo(
                 repo_root=cfg.repo_root, workspace_root=ws_root, branch=None,
                 github_repo=github_repo, github_token=github_token,
