@@ -538,7 +538,8 @@ def _security(workspace: Path, artifacts_dir: Path) -> AgentOutput:
     for p in workspace.rglob("*"):
         if not p.is_file():
             continue
-        if p.name.startswith("."):
+        # Skip dotfiles and anything inside dot-directories (.git, .env, etc.)
+        if p.name.startswith(".") or any(part.startswith(".") for part in p.relative_to(workspace).parts):
             continue
         if p.suffix.lower() in {".png", ".jpg", ".jpeg", ".gif", ".webp"}:
             continue
