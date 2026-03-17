@@ -235,6 +235,9 @@ async def run_agent(
             return
         if os.getenv("ODP_GIT_CLEANUP", "1") != "1":
             return
+        # Don't clean up cloned GitHub repos — QA/security need the engineer's workspace.
+        if github_repo:
+            return
         # Only cleanup if we created an isolated worktree under this role workspace.
         expected_repo = ws_root / "repo"
         if workspace != expected_repo:
