@@ -411,8 +411,10 @@ def _compute_spec_hash(workspace: Path) -> str:
 
 def _qa(workspace: Path, artifacts_dir: Path) -> AgentOutput:
     expected = os.getenv("ODP_EXPECTED_SPEC_HASH")
-    got = _compute_spec_hash(workspace) if expected else None
-    spec_ok = (got == expected) if expected else True
+    # Skip spec hash check if workspace has no spec docs (external repo).
+    has_spec_docs = (workspace / "docs" / "INDEX.md").exists()
+    got = _compute_spec_hash(workspace) if (expected and has_spec_docs) else None
+    spec_ok = (got == expected) if (expected and got) else True
 
     spec_report = "qa: no expected spec hash provided\n" if not expected else f"expected={expected}\nactual={got}\n"
     spec_uri = _write(artifacts_dir / "qa_spec_hash.txt", spec_report)
