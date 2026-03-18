@@ -633,7 +633,18 @@ class Orchestrator:
             return
         if os.getenv("ODP_AGENT_TEST_MODE", "0") == "1":
             return
-        repo = os.getenv("ODP_GITHUB_REPO", "")
+        # Read repo from project config in Redis, fall back to env var.
+        repo = ""
+        try:
+            raw = await self.store.redis.get(f"odp:project:{t.project_id}:meta")
+            if raw:
+                import json as _json
+                meta = _json.loads(raw if isinstance(raw, str) else raw.decode())
+                repo = meta.get("github_repo", "")
+        except Exception:
+            pass
+        if not repo:
+            repo = os.getenv("ODP_GITHUB_REPO", "")
         if not repo:
             return
         try:
@@ -642,6 +653,36 @@ class Orchestrator:
             if not gh_token:
                 return
             branch = f"odp/task-{str(t.task_id)[:8]}"
+
+            # Push the engineer's branch to GitHub first.
+            eng_ws = (
+                Path(os.getenv("ODP_WORKSPACE_DIR", "runtime/workspaces"))
+                / str(t.project_id) / str(t.task_id) / "engineer" / "repo"
+            ).resolve()
+            if eng_ws.exists():
+                push_url = f"https://x-access-token:{gh_token}@github.com/{repo}.git"
+                # Commit any uncommitted changes.
+                from .agent_runner import _run_local_cmd
+                await _run_local_cmd("git", "add", "-A", cwd=eng_ws, timeout_s=30)
+                await _run_local_cmd(
+                    "git", "commit", "-m", f"[ODP] {t.title}",
+                    cwd=eng_ws, timeout_s=30,
+                )
+                rc, out = await _run_local_cmd(
+                    "git", "push", push_url, branch,
+                    cwd=eng_ws, timeout_s=60,
+                )
+                if rc != 0:
+                    import logging
+                    logging.getLogger(__name__).warning("git push failed: %s", out)
+                    return
+                # Strip token from push URL in logs.
+                await _run_local_cmd(
+                    "git", "remote", "set-url", "origin",
+                    f"https://github.com/{repo}.git",
+                    cwd=eng_ws, timeout_s=10,
+                )
+
             # Build PR body from gate evidence.
             body_parts = [f"## Task: {t.title}"]
             if t.description:
